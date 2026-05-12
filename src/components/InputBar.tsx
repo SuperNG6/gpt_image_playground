@@ -12,6 +12,7 @@ import { getSafeBoundingClientRect } from '../lib/domRect'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
+import { useHintTooltip } from '../hooks/useHintTooltip'
 
 
 function getMentionTagTextLength(el: Element) {
@@ -409,10 +410,6 @@ export default function InputBar() {
   const [isDragging, setIsDragging] = useState(false)
   const [submitHover, setSubmitHover] = useState(false)
   const [attachHover, setAttachHover] = useState(false)
-  const [compressionHintVisible, setCompressionHintVisible] = useState(false)
-  const [moderationHintVisible, setModerationHintVisible] = useState(false)
-  const [sizeHintVisible, setSizeHintVisible] = useState(false)
-  const [qualityHintVisible, setQualityHintVisible] = useState(false)
   const [imageHintId, setImageHintId] = useState<string | null>(null)
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
@@ -435,18 +432,12 @@ export default function InputBar() {
   const [cursorPos, setCursorPos] = useState(0)
   const [menuLeft, setMenuLeft] = useState(0)
   const maskConflictNoticeShownRef = useRef(false)
-  const compressionHintTimerRef = useRef<number | null>(null)
-  const moderationHintTimerRef = useRef<number | null>(null)
-  const sizeHintTimerRef = useRef<number | null>(null)
-  const qualityHintTimerRef = useRef<number | null>(null)
   const imageHintTimerRef = useRef<number | null>(null)
-  const nLimitHintTimerRef = useRef<number | null>(null)
   const [outputCompressionInput, setOutputCompressionInput] = useState(
     params.output_compression == null ? '' : String(params.output_compression),
   )
   const [nInput, setNInput] = useState(String(params.n))
   const [nInputFocused, setNInputFocused] = useState(false)
-  const [nLimitHintVisible, setNLimitHintVisible] = useState(false)
   const dragCounter = useRef(0)
   const isMobile = useIsMobile()
 
@@ -488,6 +479,13 @@ export default function InputBar() {
         { label: 'high', value: 'high' },
       ]
   const atImageLimit = inputImages.length >= API_MAX_IMAGES
+
+  const compressionHint = useHintTooltip()
+  const moderationHint = useHintTooltip({ enabled: () => moderationDisabled })
+  const sizeHint = useHintTooltip({ enabled: () => isFalTextToImage })
+  const qualityHint = useHintTooltip({ enabled: () => settings.codexCli || isFalProvider })
+  const nLimitHint = useHintTooltip({ autoHideMs: 2000 })
+
   const maskTargetImage = maskDraft
     ? inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null
     : null
@@ -566,25 +564,10 @@ export default function InputBar() {
   }, [inputImages.length, params, effectiveSettings, setParams])
 
   useEffect(() => () => {
-    if (compressionHintTimerRef.current != null) {
-      window.clearTimeout(compressionHintTimerRef.current)
-    }
-    if (moderationHintTimerRef.current != null) {
-      window.clearTimeout(moderationHintTimerRef.current)
-    }
-    if (qualityHintTimerRef.current != null) {
-      window.clearTimeout(qualityHintTimerRef.current)
-    }
-    if (sizeHintTimerRef.current != null) {
-      window.clearTimeout(sizeHintTimerRef.current)
-    }
     if (imageHintTimerRef.current != null) {
       window.clearTimeout(imageHintTimerRef.current)
     }
     imageHintReleaseRef.current?.()
-    if (nLimitHintTimerRef.current != null) {
-      window.clearTimeout(nLimitHintTimerRef.current)
-    }
   }, [])
 
   useEffect(() => {
@@ -625,47 +608,24 @@ export default function InputBar() {
   }, [outputCompressionInput, params.output_compression, setParams])
 
   const commitN = useCallback(() => {
-    setNLimitHintVisible(false)
-    if (nLimitHintTimerRef.current != null) {
-      window.clearTimeout(nLimitHintTimerRef.current)
-      nLimitHintTimerRef.current = null
-    }
+    nLimitHint.hide()
     const nextValue = Number(nInput)
     const normalizedValue =
       nInput.trim() === '' ? DEFAULT_PARAMS.n : Number.isNaN(nextValue) ? params.n : nextValue
     const clampedValue = Math.min(outputImageLimit, Math.max(1, normalizedValue))
     setNInput(String(clampedValue))
     setParams({ n: clampedValue })
-  }, [nInput, outputImageLimit, params.n, setParams])
-
-  const showNLimitHint = useCallback(() => {
-    setNLimitHintVisible(true)
-    if (nLimitHintTimerRef.current != null) {
-      window.clearTimeout(nLimitHintTimerRef.current)
-    }
-    nLimitHintTimerRef.current = window.setTimeout(() => {
-      setNLimitHintVisible(false)
-      nLimitHintTimerRef.current = null
-    }, 2000)
-  }, [])
-
-  const hideNLimitHint = useCallback(() => {
-    setNLimitHintVisible(false)
-    if (nLimitHintTimerRef.current != null) {
-      window.clearTimeout(nLimitHintTimerRef.current)
-      nLimitHintTimerRef.current = null
-    }
-  }, [])
+  }, [nInput, outputImageLimit, params.n, setParams, nLimitHint])
 
   const handleNInputChange = useCallback((value: string) => {
     setNInput(value)
     const nextValue = Number(value)
     if (!Number.isNaN(nextValue) && nextValue > outputImageLimit) {
-      showNLimitHint()
+      nLimitHint.show()
     } else {
-      hideNLimitHint()
+      nLimitHint.hide()
     }
-  }, [hideNLimitHint, outputImageLimit, showNLimitHint])
+  }, [outputImageLimit, nLimitHint])
 
   const handleNLimitIncreaseAttempt = useCallback((preventDefault: () => void) => {
     const currentValue = Number(nInput)
@@ -673,101 +633,8 @@ export default function InputBar() {
     if (!nInputFocused || effectiveValue < outputImageLimit) return
 
     preventDefault()
-    showNLimitHint()
-  }, [nInput, nInputFocused, outputImageLimit, params.n, showNLimitHint])
-
-  const showModerationHint = () => {
-    if (moderationDisabled) setModerationHintVisible(true)
-  }
-
-  const hideModerationHint = () => {
-    setModerationHintVisible(false)
-    clearModerationHintTimer()
-  }
-
-  const clearModerationHintTimer = () => {
-    if (moderationHintTimerRef.current != null) {
-      window.clearTimeout(moderationHintTimerRef.current)
-      moderationHintTimerRef.current = null
-    }
-  }
-
-  const startModerationHintTouch = () => {
-    if (!moderationDisabled) return
-    moderationHintTimerRef.current = window.setTimeout(() => {
-      setModerationHintVisible(true)
-      moderationHintTimerRef.current = null
-    }, 450)
-  }
-
-  const showCompressionHint = () => setCompressionHintVisible(true)
-
-  const hideCompressionHint = () => {
-    setCompressionHintVisible(false)
-    clearCompressionHintTimer()
-  }
-
-  const clearCompressionHintTimer = () => {
-    if (compressionHintTimerRef.current != null) {
-      window.clearTimeout(compressionHintTimerRef.current)
-      compressionHintTimerRef.current = null
-    }
-  }
-
-  const startCompressionHintTouch = () => {
-    compressionHintTimerRef.current = window.setTimeout(() => {
-      setCompressionHintVisible(true)
-      compressionHintTimerRef.current = null
-    }, 450)
-  }
-
-  const showQualityHint = () => {
-    if (settings.codexCli || isFalProvider) setQualityHintVisible(true)
-  }
-
-  const showSizeHint = () => {
-    if (isFalTextToImage) setSizeHintVisible(true)
-  }
-
-  const hideSizeHint = () => {
-    setSizeHintVisible(false)
-    clearSizeHintTimer()
-  }
-
-  const clearSizeHintTimer = () => {
-    if (sizeHintTimerRef.current != null) {
-      window.clearTimeout(sizeHintTimerRef.current)
-      sizeHintTimerRef.current = null
-    }
-  }
-
-  const startSizeHintTouch = () => {
-    if (!isFalTextToImage) return
-    sizeHintTimerRef.current = window.setTimeout(() => {
-      setSizeHintVisible(true)
-      sizeHintTimerRef.current = null
-    }, 450)
-  }
-
-  const hideQualityHint = () => {
-    setQualityHintVisible(false)
-    clearQualityHintTimer()
-  }
-
-  const clearQualityHintTimer = () => {
-    if (qualityHintTimerRef.current != null) {
-      window.clearTimeout(qualityHintTimerRef.current)
-      qualityHintTimerRef.current = null
-    }
-  }
-
-  const startQualityHintTouch = () => {
-    if (!settings.codexCli && !isFalProvider) return
-    qualityHintTimerRef.current = window.setTimeout(() => {
-      setQualityHintVisible(true)
-      qualityHintTimerRef.current = null
-    }, 450)
-  }
+    nLimitHint.show()
+  }, [nInput, nInputFocused, outputImageLimit, params.n, nLimitHint])
 
   const clearImageHintTimer = () => {
     if (imageHintTimerRef.current != null) {
@@ -1463,12 +1330,12 @@ export default function InputBar() {
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
       <label
         className="relative flex flex-col gap-0.5"
-        onMouseEnter={showSizeHint}
-        onMouseLeave={hideSizeHint}
-        onTouchStart={startSizeHintTouch}
-        onTouchEnd={clearSizeHintTimer}
-        onTouchCancel={hideSizeHint}
-        onClick={showSizeHint}
+        onMouseEnter={sizeHint.show}
+        onMouseLeave={sizeHint.hide}
+        onTouchStart={sizeHint.startTouch}
+        onTouchEnd={sizeHint.clearTimer}
+        onTouchCancel={sizeHint.hide}
+        onClick={sizeHint.show}
       >
         <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
         <button
@@ -1480,18 +1347,18 @@ export default function InputBar() {
           {displaySize}
         </button>
         <ButtonTooltip
-          visible={isFalTextToImage && sizeHintVisible}
+          visible={isFalTextToImage && sizeHint.visible}
           text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
         />
       </label>
       <label
         className="relative flex flex-col gap-0.5"
-        onMouseEnter={showQualityHint}
-        onMouseLeave={hideQualityHint}
-        onTouchStart={startQualityHintTouch}
-        onTouchEnd={clearQualityHintTimer}
-        onTouchCancel={hideQualityHint}
-        onClick={showQualityHint}
+        onMouseEnter={qualityHint.show}
+        onMouseLeave={qualityHint.hide}
+        onTouchStart={qualityHint.startTouch}
+        onTouchEnd={qualityHint.clearTimer}
+        onTouchCancel={qualityHint.hide}
+        onClick={qualityHint.show}
       >
         <span className="text-gray-400 dark:text-gray-500 ml-1">质量</span>
         <Select
@@ -1506,7 +1373,7 @@ export default function InputBar() {
             : selectClass}
         />
         <ButtonTooltip
-          visible={(settings.codexCli || isFalProvider) && qualityHintVisible}
+          visible={(settings.codexCli || isFalProvider) && qualityHint.visible}
           text={isFalProvider ? <>fal.ai 不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 质量参数</> : 'Codex CLI 不支持质量参数'}
         />
       </label>
@@ -1525,12 +1392,12 @@ export default function InputBar() {
       </label>
       <label
         className="relative flex flex-col gap-0.5"
-        onMouseEnter={showCompressionHint}
-        onMouseLeave={hideCompressionHint}
-        onTouchStart={startCompressionHintTouch}
-        onTouchEnd={clearCompressionHintTimer}
-        onTouchCancel={hideCompressionHint}
-        onClick={showCompressionHint}
+        onMouseEnter={compressionHint.show}
+        onMouseLeave={compressionHint.hide}
+        onTouchStart={compressionHint.startTouch}
+        onTouchEnd={compressionHint.clearTimer}
+        onTouchCancel={compressionHint.hide}
+        onClick={compressionHint.show}
       >
         <span className="text-gray-400 dark:text-gray-500 ml-1">压缩率</span>
         <input
@@ -1549,18 +1416,18 @@ export default function InputBar() {
             }`}
         />
         <ButtonTooltip
-          visible={compressionHintVisible}
+          visible={compressionHint.visible}
           text={isFalProvider ? 'fal.ai 不支持压缩率参数' : '仅 JPEG 和 WebP 支持压缩率'}
         />
       </label>
       <label
         className="relative flex flex-col gap-0.5"
-        onMouseEnter={showModerationHint}
-        onMouseLeave={hideModerationHint}
-        onTouchStart={startModerationHintTouch}
-        onTouchEnd={clearModerationHintTimer}
-        onTouchCancel={hideModerationHint}
-        onClick={showModerationHint}
+        onMouseEnter={moderationHint.show}
+        onMouseLeave={moderationHint.hide}
+        onTouchStart={moderationHint.startTouch}
+        onTouchEnd={moderationHint.clearTimer}
+        onTouchCancel={moderationHint.hide}
+        onClick={moderationHint.show}
       >
         <span className="text-gray-400 dark:text-gray-500 ml-1">审核</span>
         <Select
@@ -1578,7 +1445,7 @@ export default function InputBar() {
             : selectClass}
         />
         <ButtonTooltip
-          visible={moderationDisabled && moderationHintVisible}
+          visible={moderationDisabled && moderationHint.visible}
           text={isFalProvider ? 'fal.ai 不支持审核参数' : 'Responses API 不支持审核参数'}
         />
       </label>
@@ -1607,7 +1474,7 @@ export default function InputBar() {
           max={outputImageLimit}
           className="px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-white/50 dark:bg-white/[0.03] focus:outline-none text-xs transition-all duration-200 shadow-sm"
         />
-        <ButtonTooltip visible={nLimitHintVisible} text={nLimitHintText} />
+        <ButtonTooltip visible={nLimitHint.visible} text={nLimitHintText} />
       </label>
     </div>
   )
