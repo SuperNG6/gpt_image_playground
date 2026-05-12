@@ -1706,7 +1706,7 @@ export default function InputBar() {
 
                 syncMentionTagSelection(el)
               }}
-              data-placeholder="描述你想生成的图片，可输入 @ 指定当前参考图..."
+              data-placeholder="描述你想生成的图片……"
               className="min-h-[42px] w-full whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 px-4 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 dark:empty:before:text-gray-500"
             />
           </div>
