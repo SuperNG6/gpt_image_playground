@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, useMemo, type ReactNode } from 'react'
+import { Fragment, useRef, useEffect, useCallback, useState, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, submitTask, addImageFromFile, updateTaskInStore, removeMultipleTasks, getCachedImage, ensureImageCached } from '../store'
 import { DEFAULT_PARAMS } from '../types'
@@ -975,16 +975,28 @@ export default function InputBar() {
     const desired = Math.max(scrollH, minH)
     const targetH = desired > maxH ? maxH : desired
 
-    // 2. 将高度设回上一次的实际高度，强制重绘，准备开始动画
+    // 2. 如果元素刚挂载（无历史高度），跳过动画直接设置
+    if (prevHeightRef.current === 0) {
+      el.style.height = targetH + 'px'
+      el.style.overflowY = desired > maxH ? 'auto' : 'hidden'
+      prevHeightRef.current = targetH
+      return
+    }
+
+    // 3. 将高度设回上一次的实际高度，强制重绘，准备开始动画
     el.style.height = prevHeightRef.current + 'px'
     void el.offsetHeight
 
-    // 3. 恢复平滑过渡，并设置目标高度
+    // 4. 恢复平滑过渡，并设置目标高度
     el.style.transition = 'height 150ms ease, border-color 200ms, box-shadow 200ms'
     el.style.height = targetH + 'px'
     el.style.overflowY = desired > maxH ? 'auto' : 'hidden'
 
     prevHeightRef.current = targetH
+  }, [isMobile])
+
+  useEffect(() => {
+    prevHeightRef.current = 0
   }, [isMobile])
 
   // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
@@ -1802,7 +1814,7 @@ export default function InputBar() {
 
           {/* 输入框 + 按钮 */}
           {isMobile ? (
-            <>
+            <Fragment key="mobile">
               {!keyboardVisible && <div className="animate-fade-in-up">{renderMobileParamChips()}</div>}
               <div className="relative">
                 {showAtImageMenu && (
@@ -1928,9 +1940,9 @@ export default function InputBar() {
                   </button>
                 </div>
               </div>
-            </>
+            </Fragment>
           ) : (
-            <>
+            <Fragment key="desktop">
               {/* 桌面端输入框 */}
               <div className="relative">
                 {showAtImageMenu && (
@@ -2088,7 +2100,7 @@ export default function InputBar() {
                   </div>
                 </div>
               </div>
-            </>
+            </Fragment>
           )}
 
           <input
