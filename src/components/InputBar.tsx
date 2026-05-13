@@ -1830,6 +1830,22 @@ export default function InputBar() {
                   </div>
                 )}
                 <div className="flex items-center gap-2 rounded-2xl bg-gray-100/80 dark:bg-white/[0.06] px-2 py-1.5">
+                  {!keyboardVisible && <div className="flex items-center flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                    style={{ width: MOBILE_INPUT_ROW_H, height: MOBILE_INPUT_ROW_H }}
+                    className={`flex-shrink-0 flex items-center justify-center rounded-full transition-all ${
+                      atImageLimit
+                        ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                        : 'text-gray-500 dark:text-gray-400 active:bg-gray-200 dark:active:bg-white/[0.1]'
+                    }`}
+                    title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '从相册选择'}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     onClick={() => !atImageLimit && cameraInputRef.current?.click()}
@@ -1846,6 +1862,7 @@ export default function InputBar() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
                     </svg>
                   </button>
+                  </div>}
                   <div
                     ref={textareaRef}
                     contentEditable
