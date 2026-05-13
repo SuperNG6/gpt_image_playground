@@ -1396,7 +1396,7 @@ export default function InputBar() {
   const renderImageThumbs = () => {
     return (
       <div ref={imagesRef}>
-        <div className="grid grid-cols-[repeat(auto-fill,52px)] justify-between gap-x-2 gap-y-3 mb-3">
+        <div className={`grid grid-cols-[repeat(auto-fill,52px)] justify-between mb-3 ${isMobile ? 'gap-x-1 gap-y-2' : 'gap-x-2 gap-y-3'}`}>
           {inputImages.map((img, idx) => renderImageThumb(img, idx))}
           {renderClearAllButton()}
         </div>
