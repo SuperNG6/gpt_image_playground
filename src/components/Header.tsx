@@ -16,7 +16,11 @@ function isInstalledPwa() {
   return window.matchMedia('(display-mode: standalone)').matches || nav.standalone === true
 }
 
-export default function Header() {
+interface HeaderProps {
+  isSlicerRoute?: boolean
+}
+
+export default function Header({ isSlicerRoute = false }: HeaderProps) {
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const { hasUpdate, latestRelease, dismiss } = useVersionCheck()
@@ -89,7 +93,18 @@ export default function Header() {
     <>
       <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]">
         <div className="safe-area-x safe-header-inner max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex-1 min-w-0 pr-2">
+          <div className="flex flex-1 min-w-0 items-center gap-3 pr-2">
+            {isSlicerRoute && (
+              <button
+                onClick={() => { window.location.hash = '' }}
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-white"
+              >
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                返回
+              </button>
+            )}
             <h1 className="inline-flex items-start relative">
               <a
                 href="https://github.com/CookSleep/gpt_image_playground"

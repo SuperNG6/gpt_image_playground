@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type {
   ApiProfile,
   AppSettings,
+  ConversationRecord,
   TaskParams,
   InputImage,
   MaskDraft,
@@ -37,6 +38,7 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
+import { saveDataUrlToAutoSaveDirectory, sanitizeFilenamePart, shouldNotifyMissingDirectory } from './lib/localAutoSave'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 // ===== Image cache =====
@@ -306,6 +308,31 @@ function maybeOpenSupportPrompt(previousTasks: TaskRecord[], nextTasks: TaskReco
   }
 }
 
+function makeConversationTitle(prompt: string) {
+  const trimmed = prompt.replace(/\s+/g, ' ').trim()
+  if (!trimmed) return '新对话'
+  return trimmed.length > 20 ? `${trimmed.slice(0, 20)}...` : trimmed
+}
+
+function normalizePersistedConversations(value: unknown): ConversationRecord[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is ConversationRecord => {
+      if (!item || typeof item !== 'object') return false
+      const record = item as Partial<ConversationRecord>
+      return (
+        typeof record.id === 'string' &&
+        typeof record.title === 'string' &&
+        typeof record.createdAt === 'number' &&
+        typeof record.updatedAt === 'number'
+      )
+    })
+    .map((item) => ({
+      ...item,
+      title: item.title.trim() || '新对话',
+    }))
+}
+
 export function getPersistedState(state: AppState) {
   const settings = normalizeSettings(state.settings)
   return {
@@ -317,6 +344,8 @@ export function getPersistedState(state: AppState) {
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
         }
       : {}),
+    conversations: state.conversations,
+    activeConversationId: state.activeConversationId,
     dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
     supportPromptDismissed: state.supportPromptDismissed,
     supportPromptOpen: state.supportPromptOpen,
@@ -329,10 +358,18 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 
   const persisted = persistedState as Partial<AppState>
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
+  const conversations = normalizePersistedConversations(persisted.conversations)
+  const activeConversationId =
+    typeof persisted.activeConversationId === 'string' &&
+    conversations.some((conversation) => conversation.id === persisted.activeConversationId)
+      ? persisted.activeConversationId
+      : conversations[0]?.id ?? null
   return {
     ...currentState,
     ...persisted,
     settings,
+    conversations,
+    activeConversationId,
     supportPromptDismissed: Boolean(persisted.supportPromptDismissed),
     supportPromptOpen: Boolean(persisted.supportPromptOpen),
     supportPromptSkippedForImportedData: Boolean(persisted.supportPromptSkippedForImportedData),
@@ -377,6 +414,13 @@ interface AppState {
   tasks: TaskRecord[]
   setTasks: (t: TaskRecord[]) => void
 
+  // 对话列表
+  conversations: ConversationRecord[]
+  activeConversationId: string | null
+  createConversation: (title?: string) => string
+  selectConversation: (id: string | null) => void
+  recordConversationTask: (id: string, prompt: string) => void
+
   // 搜索和筛选
   searchQuery: string
   setSearchQuery: (q: string) => void
@@ -397,6 +441,10 @@ interface AppState {
   lightboxImageId: string | null
   lightboxImageList: string[]
   setLightboxImageId: (id: string | null, list?: string[]) => void
+  splitImageId: string | null
+  splitImageDataUrl: string | null
+  setSplitImageId: (id: string | null) => void
+  setSplitImageDataUrl: (dataUrl: string | null) => void
   showSettings: boolean
   setShowSettings: (v: boolean) => void
   supportPromptOpen: boolean
@@ -570,6 +618,43 @@ export const useStore = create<AppState>()(
           ? { supportPromptSkippedForImportedData: false }
           : {}),
       })),
+      conversations: [],
+      activeConversationId: null,
+      createConversation: (title = '新对话') => {
+        const now = Date.now()
+        const conversation: ConversationRecord = {
+          id: genId(),
+          title: title.trim() || '新对话',
+          createdAt: now,
+          updatedAt: now,
+        }
+        set((s) => ({
+          conversations: [conversation, ...s.conversations],
+          activeConversationId: conversation.id,
+          detailTaskId: null,
+          selectedTaskIds: [],
+        }))
+        return conversation.id
+      },
+      selectConversation: (activeConversationId) => set({
+        activeConversationId,
+        detailTaskId: null,
+        selectedTaskIds: [],
+      }),
+      recordConversationTask: (id, prompt) => set((s) => {
+        const summary = makeConversationTitle(prompt)
+        return {
+          conversations: s.conversations.map((conversation) => {
+            if (conversation.id !== id) return conversation
+            const isFirstTask = !s.tasks.some((task) => task.conversationId === id)
+            return {
+              ...conversation,
+              title: isFirstTask && conversation.title === '新对话' ? summary : conversation.title,
+              updatedAt: Date.now(),
+            }
+          }),
+        }
+      }),
 
       // Search & Filter
       searchQuery: '',
@@ -607,6 +692,16 @@ export const useStore = create<AppState>()(
       setLightboxImageId: (lightboxImageId, list) => {
         if (lightboxImageId) dismissAllTooltips()
         set({ lightboxImageId, lightboxImageList: list ?? (lightboxImageId ? [lightboxImageId] : []) })
+      },
+      splitImageId: null,
+      splitImageDataUrl: null,
+      setSplitImageId: (splitImageId) => {
+        if (splitImageId) dismissAllTooltips()
+        set({ splitImageId, splitImageDataUrl: null })
+      },
+      setSplitImageDataUrl: (splitImageDataUrl) => {
+        if (splitImageDataUrl) dismissAllTooltips()
+        set({ splitImageDataUrl, splitImageId: null })
       },
       showSettings: false,
       setShowSettings: (showSettings) => {
@@ -668,6 +763,57 @@ function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasI
   if (!customProvider?.poll) return false
   const submitMapping = hasInputImages && customProvider.editSubmit ? customProvider.editSubmit : customProvider.submit
   return Boolean(submitMapping.taskIdPath)
+}
+
+function buildConversationContextPrompt(task: TaskRecord, settings: AppSettings) {
+  if (!settings.useConversationContext) return task.prompt
+
+  const contextTasks = useStore.getState().tasks
+    .filter((item) =>
+      item.id !== task.id &&
+      (!task.conversationId || item.conversationId === task.conversationId) &&
+      item.createdAt < task.createdAt &&
+      item.prompt.trim(),
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, settings.conversationContextCount)
+    .reverse()
+
+  if (!contextTasks.length) return task.prompt
+
+  const context = contextTasks
+    .map((item, index) => {
+      const status = item.status === 'done' ? `完成，输出 ${item.outputImages.length} 张图` : item.status === 'running' ? '生成中' : `失败：${item.error ?? '未知错误'}`
+      return `${index + 1}. 用户提示词：${item.prompt}\n   结果状态：${status}`
+    })
+    .join('\n')
+
+  return [
+    '以下是本次图像创作的对话上下文，请在理解连续创作意图后执行最新请求。',
+    context,
+    '',
+    `最新请求：${task.prompt}`,
+  ].join('\n')
+}
+
+async function autoSaveTaskOutputs(task: TaskRecord, images: string[]) {
+  const { settings, showToast } = useStore.getState()
+  if (!settings.autoSaveToDirectory) return
+
+  if (shouldNotifyMissingDirectory()) {
+    showToast('自动保存需要先在右侧栏选择本地目录', 'error')
+    return
+  }
+
+  try {
+    const promptPart = sanitizeFilenamePart(task.prompt)
+    await Promise.all(images.map((dataUrl, index) =>
+      saveDataUrlToAutoSaveDirectory(dataUrl, `${formatExportFileTime(new Date(task.createdAt))}-${promptPart}-${index + 1}.png`),
+    ))
+    showToast(`已自动保存 ${images.length} 张图片到本地目录`, 'success')
+  } catch (err) {
+    showToast(`自动保存失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+  }
 }
 
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
@@ -1024,12 +1170,48 @@ async function recoverFalTask(taskId: string) {
   }
 }
 
+async function ensureConversationStateForTasks(tasks: TaskRecord[]) {
+  const state = useStore.getState()
+  if (state.conversations.length > 0) {
+    if (!state.activeConversationId || !state.conversations.some((conversation) => conversation.id === state.activeConversationId)) {
+      useStore.setState({ activeConversationId: state.conversations[0].id })
+    }
+    return
+  }
+
+  if (tasks.length === 0) {
+    state.createConversation()
+    return
+  }
+
+  const sortedTasks = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
+  const conversationId = genId()
+  const conversation: ConversationRecord = {
+    id: conversationId,
+    title: makeConversationTitle(sortedTasks[0].prompt) || '历史记录',
+    createdAt: sortedTasks[sortedTasks.length - 1]?.createdAt ?? Date.now(),
+    updatedAt: sortedTasks[0]?.createdAt ?? Date.now(),
+  }
+  const patchedTasks = tasks.map((task) => task.conversationId ? task : { ...task, conversationId })
+  useStore.setState({
+    conversations: [conversation],
+    activeConversationId: conversationId,
+    tasks: patchedTasks,
+  })
+  await Promise.all(
+    patchedTasks
+      .filter((task, index) => task !== tasks[index])
+      .map((task) => putTask(task)),
+  )
+}
+
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
   const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
   await Promise.all(interruptedTasks.map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
+  await ensureConversationStateForTasks(useStore.getState().tasks)
   showSupportPromptForExistingLocalData(tasks)
   for (const task of tasks) {
     if (
@@ -1176,8 +1358,14 @@ export async function submitTask(options: { allowFullMask?: boolean; useCurrentA
   }
 
   const taskId = genId()
+  let conversationId = useStore.getState().activeConversationId
+  if (!conversationId) {
+    conversationId = useStore.getState().createConversation()
+  }
+  useStore.getState().recordConversationTask(conversationId, prompt)
   const task: TaskRecord = {
     id: taskId,
+    conversationId,
     prompt: prompt.trim(),
     params: normalizedParams,
     apiProvider: activeProfile.provider,
@@ -1255,7 +1443,7 @@ async function executeTask(taskId: string) {
 
     const result = await callImageApi({
       settings: requestSettings,
-      prompt: replaceImageMentionsForApi(task.prompt, inputDataUrls.length),
+      prompt: replaceImageMentionsForApi(buildConversationContextPrompt(task, settings), inputDataUrls.length),
       params: task.params,
       inputImageDataUrls: inputDataUrls,
       maskDataUrl,
@@ -1334,6 +1522,7 @@ async function executeTask(taskId: string) {
     })
 
     useStore.getState().showToast(`生成完成，共 ${outputIds.length} 张图片`, 'success')
+    void autoSaveTaskOutputs(task, result.images)
     const currentMask = useStore.getState().maskDraft
     if (
       maskDataUrl &&
@@ -1414,8 +1603,11 @@ export async function retryTask(task: TaskRecord) {
   const activeProfile = getActiveApiProfile(settings)
   const normalizedParams = normalizeParamsForSettings(task.params, settings, { hasInputImages: task.inputImageIds.length > 0 })
   const taskId = genId()
+  const conversationId = task.conversationId ?? useStore.getState().activeConversationId
+  if (conversationId) useStore.getState().recordConversationTask(conversationId, task.prompt)
   const newTask: TaskRecord = {
     id: taskId,
+    conversationId,
     prompt: task.prompt,
     params: normalizedParams,
     apiProvider: activeProfile.provider,

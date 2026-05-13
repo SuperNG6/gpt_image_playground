@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useStore, addImageFromUrl, ensureImageCached } from '../store'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
-import { CopyIcon, DownloadIcon, EditIcon } from './icons'
+import { CopyIcon, DownloadIcon, EditIcon, GridIcon } from './icons'
 
 export default function ImageContextMenu() {
   const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; x: number; y: number } | null>(null)
@@ -10,6 +10,8 @@ export default function ImageContextMenu() {
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const setMaskEditorImageId = useStore((s) => s.setMaskEditorImageId)
+  const setSplitImageId = useStore((s) => s.setSplitImageId)
+  const setSplitImageDataUrl = useStore((s) => s.setSplitImageDataUrl)
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -136,11 +138,36 @@ export default function ImageContextMenu() {
     }
   }
 
+  const handleSplit = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const imageId = menuInfo.imageId
+    setMenuInfo(null)
+    try {
+      const src = await getOriginalImageSrc()
+      if (src.startsWith('data:')) {
+        setSplitImageDataUrl(src)
+      } else if (imageId) {
+        setSplitImageId(imageId)
+      } else {
+        setSplitImageDataUrl(src)
+      }
+      window.location.hash = '#/slicer'
+    } catch (err) {
+      console.error(err)
+      if (imageId) {
+        setSplitImageId(imageId)
+        window.location.hash = '#/slicer'
+        return
+      }
+      showToast(`打开切分页失败：${err instanceof Error ? err.message : String(err)}`, 'error')
+    }
+  }
+
   // 保证菜单在视口内
   let left = menuInfo.x
   let top = menuInfo.y
   const MENU_WIDTH = 120
-  const MENU_HEIGHT = 128 // 三个按钮高度加 padding
+  const MENU_HEIGHT = 168 // 四个按钮高度加 padding
 
   if (left + MENU_WIDTH > window.innerWidth) {
     left -= MENU_WIDTH
@@ -176,6 +203,13 @@ export default function ImageContextMenu() {
       >
         <EditIcon className="w-4 h-4 flex-shrink-0" />
         编辑
+      </button>
+      <button
+        onClick={handleSplit}
+        className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50 flex items-center gap-2 transition-colors"
+      >
+        <GridIcon className="w-4 h-4 flex-shrink-0" />
+        切分
       </button>
     </div>
   )

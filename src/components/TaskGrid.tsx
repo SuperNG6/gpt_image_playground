@@ -4,6 +4,7 @@ import TaskCard from './TaskCard'
 
 export default function TaskGrid() {
   const tasks = useStore((s) => s.tasks)
+  const activeConversationId = useStore((s) => s.activeConversationId)
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
   const filterFavorite = useStore((s) => s.filterFavorite)
@@ -33,6 +34,7 @@ export default function TaskGrid() {
     const q = searchQuery.trim().toLowerCase()
     
     return sorted.filter((t) => {
+      if (activeConversationId && t.conversationId !== activeConversationId) return false
       if (filterFavorite && !t.isFavorite) return false
       const matchStatus = filterStatus === 'all' || t.status === filterStatus
       if (!matchStatus) return false
@@ -42,7 +44,7 @@ export default function TaskGrid() {
       const paramStr = JSON.stringify(t.params).toLowerCase()
       return prompt.includes(q) || paramStr.includes(q)
     })
-  }, [tasks, searchQuery, filterStatus, filterFavorite])
+  }, [tasks, activeConversationId, searchQuery, filterStatus, filterFavorite])
 
   const handleDelete = (task: typeof tasks[0]) => {
     setConfirmDialog({

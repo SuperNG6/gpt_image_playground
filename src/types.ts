@@ -83,6 +83,9 @@ export interface AppSettings {
   reuseTaskApiProfileTemporarily: boolean
   alwaysShowRetryButton: boolean
   enterSubmit: boolean
+  useConversationContext: boolean
+  conversationContextCount: number
+  autoSaveToDirectory: boolean
   profiles: ApiProfile[]
   activeProfileId: string
 }
@@ -126,8 +129,16 @@ export interface MaskDraft {
 
 export type TaskStatus = 'running' | 'done' | 'error'
 
+export interface ConversationRecord {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface TaskRecord {
   id: string
+  conversationId?: string | null
   prompt: string
   params: TaskParams
   /** 生成时使用的 Provider 类型 */

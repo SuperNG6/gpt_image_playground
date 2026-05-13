@@ -448,6 +448,11 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     reuseTaskApiProfileTemporarily: typeof record.reuseTaskApiProfileTemporarily === 'boolean' ? record.reuseTaskApiProfileTemporarily : false,
     alwaysShowRetryButton: typeof record.alwaysShowRetryButton === 'boolean' ? record.alwaysShowRetryButton : false,
     enterSubmit: typeof record.enterSubmit === 'boolean' ? record.enterSubmit : false,
+    useConversationContext: typeof record.useConversationContext === 'boolean' ? record.useConversationContext : false,
+    conversationContextCount: typeof record.conversationContextCount === 'number' && Number.isFinite(record.conversationContextCount)
+      ? Math.max(1, Math.min(20, Math.floor(record.conversationContextCount)))
+      : 5,
+    autoSaveToDirectory: typeof record.autoSaveToDirectory === 'boolean' ? record.autoSaveToDirectory : false,
     profiles,
     activeProfileId,
   }
@@ -724,4 +729,7 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   reuseTaskApiProfileTemporarily: false,
   alwaysShowRetryButton: false,
   enterSubmit: false,
+  useConversationContext: false,
+  conversationContextCount: 5,
+  autoSaveToDirectory: false,
 })
