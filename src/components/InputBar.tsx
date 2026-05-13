@@ -263,6 +263,7 @@ function ButtonTooltip({ visible, text }: { visible: boolean; text: ReactNode })
 
 /** API 支持的最大参考图数量 */
 const API_MAX_IMAGES = 16
+const MOBILE_INPUT_ROW_H = 32
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 640)
@@ -272,6 +273,67 @@ function useIsMobile() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
   return isMobile
+}
+
+const KEYBOARD_THRESHOLD = 0.75
+
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    let fromViewport = false
+    let fromFocus = false
+    const initialHeight = window.innerHeight
+    let focusOutTimer: ReturnType<typeof setTimeout> | null = null
+    const update = () => setVisible(fromViewport || fromFocus)
+
+    const vv = window.visualViewport
+    const onVVResize = () => {
+      if (vv) {
+        fromViewport = vv.height < window.innerHeight * KEYBOARD_THRESHOLD
+        update()
+      }
+    }
+
+    const onWindowResize = () => {
+      const curr = window.innerHeight
+      if (curr > initialHeight * 0.85) {
+        fromFocus = false
+        update()
+      } else if (curr < initialHeight * KEYBOARD_THRESHOLD) {
+        fromFocus = true
+        update()
+      }
+    }
+
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
+        fromFocus = true
+        update()
+      }
+    }
+    const onFocusOut = (e: FocusEvent) => {
+      const related = e.relatedTarget as HTMLElement | null
+      if (related && (related.isContentEditable || related.tagName === 'INPUT' || related.tagName === 'TEXTAREA')) {
+        return
+      }
+      fromFocus = false
+      focusOutTimer = setTimeout(update, 100)
+    }
+
+    if (vv) vv.addEventListener('resize', onVVResize)
+    window.addEventListener('resize', onWindowResize)
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('focusout', onFocusOut)
+    return () => {
+      if (vv) vv.removeEventListener('resize', onVVResize)
+      window.removeEventListener('resize', onWindowResize)
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('focusout', onFocusOut)
+      if (focusOutTimer) clearTimeout(focusOutTimer)
+    }
+  }, [])
+  return visible
 }
 
 export default function InputBar() {
@@ -406,6 +468,7 @@ export default function InputBar() {
   const moveInputImage = useStore((s) => s.moveInputImage)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const imagesRef = useRef<HTMLDivElement>(null)
@@ -418,6 +481,7 @@ export default function InputBar() {
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [showParamsModal, setShowParamsModal] = useState(false)
+  const [mobileParamSheet, setMobileParamSheet] = useState<'quality' | 'format' | 'moderation' | null>(null)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
@@ -445,6 +509,22 @@ export default function InputBar() {
   const [nInputFocused, setNInputFocused] = useState(false)
   const dragCounter = useRef(0)
   const isMobile = useIsMobile()
+  const keyboardVisible = useKeyboardVisible()
+
+  useEffect(() => {
+    if (!isMobile) return
+    const onTouchStart = (e: TouchEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest('[data-input-bar]')) return
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.isContentEditable || active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+        active.blur()
+      }
+    }
+    document.addEventListener('touchstart', onTouchStart, { passive: true })
+    return () => document.removeEventListener('touchstart', onTouchStart)
+  }, [isMobile])
+
   useCloseOnEscape(showParamsModal, () => setShowParamsModal(false))
   usePreventBackgroundScroll(showParamsModal)
 
@@ -891,7 +971,7 @@ export default function InputBar() {
     el.style.height = '0'
     el.style.overflowY = 'hidden'
     const scrollH = el.scrollHeight
-    const minH = 42
+    const minH = isMobile ? MOBILE_INPUT_ROW_H : 42
     const desired = Math.max(scrollH, minH)
     const targetH = desired > maxH ? maxH : desired
 
@@ -905,7 +985,7 @@ export default function InputBar() {
     el.style.overflowY = desired > maxH ? 'auto' : 'hidden'
 
     prevHeightRef.current = targetH
-  }, [])
+  }, [isMobile])
 
   // 将 prompt 同步渲染到 contentEditable（含胶囊 tag）
   useEffect(() => {
@@ -1463,6 +1543,90 @@ export default function InputBar() {
     </div>
   )
 
+  const mobileChipClass = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium border border-gray-200/60 dark:border-white/[0.08] bg-white/80 dark:bg-white/[0.06] text-gray-600 dark:text-gray-300 shadow-sm active:scale-95 transition-all whitespace-nowrap'
+
+  const renderMobileParamChips = () => (
+    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-2">
+      <button type="button" onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }} className={mobileChipClass}>
+        <span className="text-gray-400 dark:text-gray-500">尺寸</span>
+        <span>{displaySize}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => !settings.codexCli && setMobileParamSheet('quality')}
+        className={`${mobileChipClass} ${settings.codexCli ? 'opacity-50' : ''}`}
+      >
+        <span className="text-gray-400 dark:text-gray-500">质量</span>
+        <span>{settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality}</span>
+      </button>
+      <button type="button" onClick={() => setMobileParamSheet('format')} className={mobileChipClass}>
+        <span className="text-gray-400 dark:text-gray-500">格式</span>
+        <span>{params.output_format.toUpperCase()}</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => !moderationDisabled && setMobileParamSheet('moderation')}
+        className={`${mobileChipClass} ${moderationDisabled ? 'opacity-50' : ''}`}
+      >
+        <span className="text-gray-400 dark:text-gray-500">审核</span>
+        <span>{moderationDisabled ? 'auto' : params.moderation}</span>
+      </button>
+    </div>
+  )
+
+  const renderMobileActionSheet = () => {
+    if (!mobileParamSheet) return null
+    const configs = {
+      quality: {
+        title: '质量',
+        options: qualityOptions,
+        value: settings.codexCli ? 'auto' : isFalProvider && params.quality === 'auto' ? 'high' : params.quality,
+        onChange: (val: string) => setParams({ quality: val as any }),
+      },
+      format: {
+        title: '格式',
+        options: [{ label: 'PNG', value: 'png' }, { label: 'JPEG', value: 'jpeg' }, { label: 'WebP', value: 'webp' }],
+        value: params.output_format,
+        onChange: (val: string) => setParams({ output_format: val as any }),
+      },
+      moderation: {
+        title: '审核',
+        options: [{ label: 'auto', value: 'auto' }, { label: 'low', value: 'low' }],
+        value: params.moderation,
+        onChange: (val: string) => setParams({ moderation: val as any }),
+      },
+    }
+    const cfg = configs[mobileParamSheet]
+    return (
+      <div className="fixed inset-0 z-[70]" onMouseDown={() => setMobileParamSheet(null)} onTouchEnd={() => setMobileParamSheet(null)}>
+        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm animate-overlay-in" />
+        <div
+          className="absolute bottom-0 left-0 right-0 rounded-t-2xl bg-white dark:bg-gray-900 border-t border-gray-200/50 dark:border-white/[0.08] p-5 pb-safe animate-slide-up"
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+        >
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">{cfg.title}</div>
+          <div className="flex flex-wrap gap-2">
+            {cfg.options.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => { cfg.onChange(opt.value); setMobileParamSheet(null) }}
+                className={`px-4 py-2 rounded-full text-sm transition-all ${
+                  cfg.value === opt.value
+                    ? 'bg-blue-500 text-white shadow-sm'
+                    : 'bg-gray-100 dark:bg-white/[0.06] text-gray-700 dark:text-gray-300 active:scale-95'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       {/* 全屏拖拽遮罩 */}
@@ -1532,6 +1696,8 @@ export default function InputBar() {
           </div>
         </div>
       )}
+
+      {renderMobileActionSheet()}
 
       <div data-input-bar className="fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 w-full max-w-4xl px-3 sm:px-4 transition-all duration-300">
         {selectedTaskIds.length > 0 && (
@@ -1604,13 +1770,15 @@ export default function InputBar() {
         )}
         <div ref={cardRef} className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-2xl border border-white/50 dark:border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.08)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.3)] rounded-2xl sm:rounded-3xl p-3 sm:p-4 ring-1 ring-black/5 dark:ring-white/10">
           {/* 移动端拖动条 */}
-          <div
-            ref={handleRef}
-            className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none"
-            onClick={() => setMobileCollapsed((v) => !v)}
-          >
-            <div className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`} />
-          </div>
+          {!keyboardVisible && (
+            <div
+              ref={handleRef}
+              className="sm:hidden flex justify-center pt-0.5 pb-2 -mt-1 cursor-pointer touch-none animate-fade-in-up"
+              onClick={() => setMobileCollapsed((v) => !v)}
+            >
+              <div className={`w-10 h-1 rounded-full bg-gray-300 dark:bg-white/[0.06] transition-transform duration-200 ${mobileCollapsed ? 'scale-x-75' : ''}`} />
+            </div>
+          )}
 
           {/* 输入图片行（移动端可折叠） */}
           {inputImages.length > 0 && (
@@ -1632,170 +1800,293 @@ export default function InputBar() {
             )
           )}
 
-          {/* 输入框 */}
-          <div className="relative">
-            {showAtImageMenu && (
-              <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
-                <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择当前参考图</div>
-                <div className="max-h-56 overflow-y-auto custom-scrollbar">
-                  {atImageOptions.map(({ img, index }, optionIndex) => (
-                    <button
-                      key={img.id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        selectAtImageOption(index)
-                      }}
-                      onMouseEnter={() => setAtImageMenuIndex(optionIndex)}
-                      className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
-                        optionIndex === atImageMenuIndex
-                          ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
-                          : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
-                        <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate font-medium">{getImageMentionLabel(index)}</span>
-                    </button>
-                  ))}
+          {/* 输入框 + 按钮 */}
+          {isMobile ? (
+            <>
+              {!keyboardVisible && <div className="animate-fade-in-up">{renderMobileParamChips()}</div>}
+              <div className="relative">
+                {showAtImageMenu && (
+                  <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+                    <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择当前参考图</div>
+                    <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                      {atImageOptions.map(({ img, index }, optionIndex) => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onMouseDown={(e) => { e.preventDefault(); selectAtImageOption(index) }}
+                          className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
+                            optionIndex === atImageMenuIndex
+                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
+                              : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
+                            <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-medium">{getImageMentionLabel(index)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 rounded-2xl bg-gray-100/80 dark:bg-white/[0.06] px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => !atImageLimit && cameraInputRef.current?.click()}
+                    style={{ width: MOBILE_INPUT_ROW_H, height: MOBILE_INPUT_ROW_H }}
+                    className={`flex-shrink-0 flex items-center justify-center rounded-full transition-all ${
+                      atImageLimit
+                        ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                        : 'text-gray-500 dark:text-gray-400 active:bg-gray-200 dark:active:bg-white/[0.1]'
+                    }`}
+                    title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                    </svg>
+                  </button>
+                  <div
+                    ref={textareaRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={(e) => {
+                      isUserInputRef.current = true
+                      const el = e.currentTarget
+                      const range = getContentEditableSelection(el)
+                      setCursorPos(range.start)
+                      syncMentionTagSelection(el)
+                      const text = getContentEditablePlainText(el)
+                      setPrompt(text)
+                      setAtImageMenuIndex(0)
+                      setAtImageMenuDismissed(false)
+                    }}
+                    onSelect={(e) => {
+                      const el = e.currentTarget
+                      const range = getContentEditableSelection(el)
+                      setCursorPos(range.start)
+                      syncMentionTagSelection(el)
+                      setAtImageMenuIndex(0)
+                      setAtImageMenuDismissed(false)
+                    }}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePromptPaste}
+                    onCopy={handlePromptCopy}
+                    onClick={(e) => {
+                      const el = textareaRef.current
+                      if (!el) return
+                      const target = e.target as HTMLElement
+                      if (target.classList.contains('mention-tag')) {
+                        const sel = window.getSelection()
+                        if (sel) {
+                          const range = document.createRange()
+                          range.selectNode(target)
+                          sel.removeAllRanges()
+                          sel.addRange(range)
+                          syncMentionTagSelection(el)
+                        }
+                        return
+                      }
+                      syncMentionTagSelection(el)
+                    }}
+                    data-placeholder="描述你想生成的图片……"
+                    style={{ lineHeight: `${MOBILE_INPUT_ROW_H}px` }}
+                    className="flex-1 min-w-0 max-h-[120px] overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-1 text-sm outline-none empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:text-gray-100 dark:empty:before:text-gray-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => hasSubmitApiConfig ? submitTask() : setShowSettings(true)}
+                    disabled={hasSubmitApiConfig ? !canSubmit : false}
+                    style={{ width: MOBILE_INPUT_ROW_H, height: MOBILE_INPUT_ROW_H }}
+                    className={`flex-shrink-0 flex items-center justify-center rounded-full transition-all ${
+                      !hasSubmitApiConfig
+                        ? 'bg-gray-300 dark:bg-white/[0.08] text-white'
+                        : 'bg-blue-500 text-white active:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.06] disabled:opacity-50 disabled:cursor-not-allowed'
+                    }`}
+                    title={hasSubmitApiConfig ? (maskDraft ? '遮罩编辑' : '生成') : '请先配置 API'}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  </button>
                 </div>
               </div>
-            )}
-            <div
-              ref={textareaRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={(e) => {
-                isUserInputRef.current = true
-                const el = e.currentTarget
-                const range = getContentEditableSelection(el)
-                setCursorPos(range.start)
-                syncMentionTagSelection(el)
-                const text = getContentEditablePlainText(el)
-                setPrompt(text)
-                setAtImageMenuIndex(0)
-                setAtImageMenuDismissed(false)
-              }}
-              onSelect={(e) => {
-                const el = e.currentTarget
-                const range = getContentEditableSelection(el)
-                setCursorPos(range.start)
-                syncMentionTagSelection(el)
-                setAtImageMenuIndex(0)
-                setAtImageMenuDismissed(false)
-              }}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePromptPaste}
-              onCopy={handlePromptCopy}
-              onClick={(e) => {
-                const el = textareaRef.current
-                if (!el) return
-                const target = e.target as HTMLElement
-                if (target.classList.contains('mention-tag')) {
-                  const sel = window.getSelection()
-                  if (sel) {
-                    const range = document.createRange()
-                    range.selectNode(target)
-                    sel.removeAllRanges()
-                    sel.addRange(range)
+            </>
+          ) : (
+            <>
+              {/* 桌面端输入框 */}
+              <div className="relative">
+                {showAtImageMenu && (
+                  <div style={{ left: `${menuLeft}px` }} className="absolute bottom-full z-50 mb-2 w-64 overflow-hidden rounded-2xl border border-gray-200/70 bg-white/95 p-1.5 shadow-xl ring-1 ring-black/5 backdrop-blur-xl dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10">
+                    <div className="px-2 pb-1 pt-0.5 text-[11px] text-gray-400 dark:text-gray-500">选择当前参考图</div>
+                    <div className="max-h-56 overflow-y-auto custom-scrollbar">
+                      {atImageOptions.map(({ img, index }, optionIndex) => (
+                        <button
+                          key={img.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectAtImageOption(index)
+                          }}
+                          onMouseEnter={() => setAtImageMenuIndex(optionIndex)}
+                          className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs transition-colors ${
+                            optionIndex === atImageMenuIndex
+                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300'
+                              : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/[0.06]'
+                          }`}
+                        >
+                          <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200/70 dark:border-white/[0.08]">
+                            <img src={img.dataUrl} className="h-full w-full object-cover" alt="" />
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-medium">{getImageMentionLabel(index)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div
+                  ref={textareaRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={(e) => {
+                    isUserInputRef.current = true
+                    const el = e.currentTarget
+                    const range = getContentEditableSelection(el)
+                    setCursorPos(range.start)
                     syncMentionTagSelection(el)
-                  }
-                  return
-                }
-
-                syncMentionTagSelection(el)
-              }}
-              data-placeholder="描述你想生成的图片……"
-              className="min-h-[42px] w-full whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 px-4 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 dark:empty:before:text-gray-500"
-            />
-          </div>
-
-          {/* 按钮行 */}
-          <div className="mt-3 flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2">
-              <div
-                className="relative"
-                onMouseEnter={sizeHint.show}
-                onMouseLeave={sizeHint.hide}
-                onTouchStart={sizeHint.startTouch}
-                onTouchEnd={sizeHint.clearTimer}
-                onTouchCancel={sizeHint.hide}
-              >
-                <ButtonTooltip
-                  visible={isFalTextToImage && sizeHint.visible}
-                  text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
+                    const text = getContentEditablePlainText(el)
+                    setPrompt(text)
+                    setAtImageMenuIndex(0)
+                    setAtImageMenuDismissed(false)
+                  }}
+                  onSelect={(e) => {
+                    const el = e.currentTarget
+                    const range = getContentEditableSelection(el)
+                    setCursorPos(range.start)
+                    syncMentionTagSelection(el)
+                    setAtImageMenuIndex(0)
+                    setAtImageMenuDismissed(false)
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePromptPaste}
+                  onCopy={handlePromptCopy}
+                  onClick={(e) => {
+                    const el = textareaRef.current
+                    if (!el) return
+                    const target = e.target as HTMLElement
+                    if (target.classList.contains('mention-tag')) {
+                      const sel = window.getSelection()
+                      if (sel) {
+                        const range = document.createRange()
+                        range.selectNode(target)
+                        sel.removeAllRanges()
+                        sel.addRange(range)
+                        syncMentionTagSelection(el)
+                      }
+                      return
+                    }
+                    syncMentionTagSelection(el)
+                  }}
+                  data-placeholder="描述你想生成的图片……"
+                  className="min-h-[42px] w-full whitespace-pre-wrap break-words rounded-2xl border border-gray-200/60 bg-white/50 px-4 py-3 text-sm leading-relaxed shadow-sm outline-none transition-[border-color,box-shadow] duration-200 focus:ring-1 focus:ring-blue-300/40 empty:before:pointer-events-none empty:before:text-gray-400 empty:before:content-[attr(data-placeholder)] dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-100 dark:focus:ring-blue-500/30 dark:empty:before:text-gray-500"
                 />
-                <button
-                  type="button"
-                  onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
-                  className="h-10 w-[104px] rounded-xl border border-gray-200/60 bg-white text-xs font-mono text-gray-600 shadow-sm transition-all hover:bg-gray-50 hover:shadow dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-                  title="选择尺寸"
-                >
-                  {displaySize}
-                </button>
               </div>
-              <div
-                className="relative"
-                onMouseEnter={() => setAttachHover(true)}
-                onMouseLeave={() => setAttachHover(false)}
-              >
-                <ButtonTooltip visible={atImageLimit && attachHover} text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`} />
-                <button
-                  onClick={() => !atImageLimit && fileInputRef.current?.click()}
-                  className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm ${
-                    atImageLimit
-                      ? 'bg-gray-200 dark:bg-white/[0.04] text-gray-300 dark:text-gray-500 cursor-not-allowed'
-                      : 'bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300 hover:shadow'
-                  }`}
-                  title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                </button>
+
+              {/* 桌面端按钮行 */}
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div
+                    className="relative"
+                    onMouseEnter={sizeHint.show}
+                    onMouseLeave={sizeHint.hide}
+                    onTouchStart={sizeHint.startTouch}
+                    onTouchEnd={sizeHint.clearTimer}
+                    onTouchCancel={sizeHint.hide}
+                  >
+                    <ButtonTooltip
+                      visible={isFalTextToImage && sizeHint.visible}
+                      text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
+                      className="h-10 w-[104px] rounded-xl border border-gray-200/60 bg-white text-xs font-mono text-gray-600 shadow-sm transition-all hover:bg-gray-50 hover:shadow dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                      title="选择尺寸"
+                    >
+                      {displaySize}
+                    </button>
+                  </div>
+                  <div
+                    className="relative"
+                    onMouseEnter={() => setAttachHover(true)}
+                    onMouseLeave={() => setAttachHover(false)}
+                  >
+                    <ButtonTooltip visible={atImageLimit && attachHover} text={`参考图数量已达上限（${API_MAX_IMAGES} 张），无法继续添加`} />
+                    <button
+                      onClick={() => !atImageLimit && fileInputRef.current?.click()}
+                      className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm ${
+                        atImageLimit
+                          ? 'bg-gray-200 dark:bg-white/[0.04] text-gray-300 dark:text-gray-500 cursor-not-allowed'
+                          : 'bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300 hover:shadow'
+                      }`}
+                      title={atImageLimit ? `已达上限 ${API_MAX_IMAGES} 张` : '添加参考图'}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowParamsModal(true)}
+                    className="h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300 hover:shadow"
+                    title="参数设置"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div
+                    className="relative"
+                    onMouseEnter={() => setSubmitHover(true)}
+                    onMouseLeave={() => setSubmitHover(false)}
+                  >
+                    <ButtonTooltip visible={!hasSubmitApiConfig && submitHover} text="尚未完成 API 配置，请在右上角设置中进行" />
+                    <button
+                      onClick={() => hasSubmitApiConfig ? submitTask() : setShowSettings(true)}
+                      disabled={hasSubmitApiConfig ? !canSubmit : false}
+                      className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm hover:shadow ${
+                        !hasSubmitApiConfig
+                          ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
+                          : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed'
+                      }`}
+                      title={hasSubmitApiConfig ? (maskDraft ? '遮罩编辑 (Ctrl+Enter)' : '生成 (Ctrl+Enter)') : '请先配置 API'}
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowParamsModal(true)}
-                className="h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300 hover:shadow"
-                title="参数设置"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <div
-                className="relative"
-                onMouseEnter={() => setSubmitHover(true)}
-                onMouseLeave={() => setSubmitHover(false)}
-              >
-                <ButtonTooltip visible={!hasSubmitApiConfig && submitHover} text="尚未完成 API 配置，请在右上角设置中进行" />
-                <button
-                  onClick={() => hasSubmitApiConfig ? submitTask() : setShowSettings(true)}
-                  disabled={hasSubmitApiConfig ? !canSubmit : false}
-                  className={`h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm hover:shadow ${
-                    !hasSubmitApiConfig
-                      ? 'bg-gray-300 dark:bg-white/[0.06] text-white cursor-pointer'
-                      : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-white/[0.04] disabled:opacity-50 disabled:cursor-not-allowed'
-                  }`}
-                  title={hasSubmitApiConfig ? (maskDraft ? '遮罩编辑 (Ctrl+Enter)' : '生成 (Ctrl+Enter)') : '请先配置 API'}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
+            </>
+          )}
 
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
             multiple
+            className="hidden"
+            onChange={handleFileUpload}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
             className="hidden"
             onChange={handleFileUpload}
           />

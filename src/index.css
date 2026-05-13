@@ -296,3 +296,31 @@ input[type="number"] {
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
   }
 }
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.25s ease-out;
+}
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.pb-safe {
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.25s ease-out;
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
