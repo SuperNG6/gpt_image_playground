@@ -282,24 +282,24 @@ function useKeyboardVisible() {
   useEffect(() => {
     let fromViewport = false
     let fromFocus = false
-    const initialHeight = window.innerHeight
+    const baseHeight = window.screen?.height || window.innerHeight
     let focusOutTimer: ReturnType<typeof setTimeout> | null = null
     const update = () => setVisible(fromViewport || fromFocus)
 
     const vv = window.visualViewport
     const onVVResize = () => {
       if (vv) {
-        fromViewport = vv.height < window.innerHeight * KEYBOARD_THRESHOLD
+        fromViewport = vv.height < baseHeight * KEYBOARD_THRESHOLD
         update()
       }
     }
 
     const onWindowResize = () => {
       const curr = window.innerHeight
-      if (curr > initialHeight * 0.85) {
+      if (curr > baseHeight * 0.85) {
         fromFocus = false
         update()
-      } else if (curr < initialHeight * KEYBOARD_THRESHOLD) {
+      } else if (curr < baseHeight * KEYBOARD_THRESHOLD) {
         fromFocus = true
         update()
       }
@@ -1007,7 +1007,7 @@ export default function InputBar() {
     if (el.innerHTML !== html) {
       el.innerHTML = html
     }
-  }, [prompt, inputImages])
+  }, [prompt, inputImages, isMobile])
 
   useEffect(() => {
     adjustTextareaHeight()
