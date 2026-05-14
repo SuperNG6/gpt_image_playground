@@ -38,7 +38,7 @@ import { getCustomQueuedImageResult } from './lib/openaiCompatibleImageApi'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { orderInputImagesForMask } from './lib/mask'
 import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompatibility'
-import { saveDataUrlToAutoSaveDirectory, sanitizeFilenamePart, shouldNotifyMissingDirectory } from './lib/localAutoSave'
+import { clearAutoSaveDirectory, hasAutoSaveDirectory, saveDataUrlToAutoSaveDirectory, sanitizeFilenamePart } from './lib/localAutoSave'
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 // ===== Image cache =====
@@ -333,6 +333,97 @@ function normalizePersistedConversations(value: unknown): ConversationRecord[] {
     }))
 }
 
+function createConversationRecord(title = '新对话', now = Date.now()): ConversationRecord {
+  return {
+    id: genId(),
+    title: title.trim() || '新对话',
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+function mergeConversationRecords(existing: ConversationRecord[], incoming: ConversationRecord[] | undefined) {
+  const merged = new Map<string, ConversationRecord>()
+  for (const conversation of [...existing, ...normalizePersistedConversations(incoming)]) {
+    merged.set(conversation.id, conversation)
+  }
+  return Array.from(merged.values())
+}
+
+type ReconcileConversationOptions = {
+  keepEmptyConversations?: boolean
+  createWhenEmpty?: boolean
+  orphanTitle?: string
+}
+
+async function reconcileConversationStateForTasks(tasks: TaskRecord[], options: ReconcileConversationOptions = {}) {
+  const {
+    keepEmptyConversations = true,
+    createWhenEmpty = true,
+    orphanTitle = '历史记录',
+  } = options
+  const state = useStore.getState()
+  const existingConversations = normalizePersistedConversations(state.conversations)
+  const existingById = new Map(existingConversations.map((conversation) => [conversation.id, conversation]))
+  let orphanConversationId: string | null = null
+
+  const patchedTasks = tasks.map((task) => {
+    if (task.conversationId) return task
+    if (!orphanConversationId) orphanConversationId = genId()
+    return { ...task, conversationId: orphanConversationId }
+  })
+
+  const tasksByConversation = new Map<string, TaskRecord[]>()
+  for (const task of patchedTasks) {
+    if (!task.conversationId) continue
+    const list = tasksByConversation.get(task.conversationId) ?? []
+    list.push(task)
+    tasksByConversation.set(task.conversationId, list)
+  }
+
+  let nextConversations: ConversationRecord[] = []
+  for (const [conversationId, conversationTasks] of tasksByConversation) {
+    const sortedTasks = [...conversationTasks].sort((a, b) => b.createdAt - a.createdAt)
+    const existing = existingById.get(conversationId)
+    const latestTask = sortedTasks[0]
+    nextConversations.push({
+      id: conversationId,
+      title: existing?.title?.trim() || (conversationId === orphanConversationId ? orphanTitle : makeConversationTitle(latestTask.prompt)),
+      createdAt: existing?.createdAt ?? sortedTasks[sortedTasks.length - 1]?.createdAt ?? Date.now(),
+      updatedAt: Math.max(existing?.updatedAt ?? 0, latestTask?.createdAt ?? Date.now()),
+    })
+  }
+
+  if (keepEmptyConversations) {
+    for (const conversation of existingConversations) {
+      if (!tasksByConversation.has(conversation.id)) nextConversations.push(conversation)
+    }
+  }
+
+  nextConversations = nextConversations.sort((a, b) => b.updatedAt - a.updatedAt)
+  if (!nextConversations.length && createWhenEmpty) {
+    nextConversations = [createConversationRecord()]
+  }
+
+  const activeConversationId = nextConversations.some((conversation) => conversation.id === state.activeConversationId)
+    ? state.activeConversationId
+    : nextConversations[0]?.id ?? null
+
+  useStore.setState({
+    tasks: patchedTasks,
+    conversations: nextConversations,
+    activeConversationId,
+    detailTaskId: null,
+    selectedTaskIds: [],
+  })
+
+  await Promise.all(
+    patchedTasks
+      .filter((task, index) => task !== tasks[index])
+      .map((task) => putTask(task)),
+  )
+}
+
 export function getPersistedState(state: AppState) {
   const settings = normalizeSettings(state.settings)
   return {
@@ -358,6 +449,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
 
   const persisted = persistedState as Partial<AppState>
   const settings = normalizeSettings(persisted.settings ?? currentState.settings)
+  if (settings.autoSaveToDirectory && !hasAutoSaveDirectory()) {
+    settings.autoSaveToDirectory = false
+  }
   const conversations = normalizePersistedConversations(persisted.conversations)
   const activeConversationId =
     typeof persisted.activeConversationId === 'string' &&
@@ -621,13 +715,7 @@ export const useStore = create<AppState>()(
       conversations: [],
       activeConversationId: null,
       createConversation: (title = '新对话') => {
-        const now = Date.now()
-        const conversation: ConversationRecord = {
-          id: genId(),
-          title: title.trim() || '新对话',
-          createdAt: now,
-          updatedAt: now,
-        }
+        const conversation = createConversationRecord(title)
         set((s) => ({
           conversations: [conversation, ...s.conversations],
           activeConversationId: conversation.id,
@@ -765,10 +853,9 @@ function isAsyncCustomProviderTask(settings: AppSettings, provider: string, hasI
   return Boolean(submitMapping.taskIdPath)
 }
 
-function buildConversationContextPrompt(task: TaskRecord, settings: AppSettings) {
-  if (!settings.useConversationContext) return task.prompt
-
-  const contextTasks = useStore.getState().tasks
+function getConversationContextTasks(task: TaskRecord, settings: AppSettings) {
+  if (!settings.useConversationContext) return []
+  return useStore.getState().tasks
     .filter((item) =>
       item.id !== task.id &&
       (!task.conversationId || item.conversationId === task.conversationId) &&
@@ -778,7 +865,10 @@ function buildConversationContextPrompt(task: TaskRecord, settings: AppSettings)
     .sort((a, b) => b.createdAt - a.createdAt)
     .slice(0, settings.conversationContextCount)
     .reverse()
+}
 
+function buildConversationContextPrompt(task: TaskRecord, settings: AppSettings) {
+  const contextTasks = getConversationContextTasks(task, settings)
   if (!contextTasks.length) return task.prompt
 
   const context = contextTasks
@@ -791,16 +881,36 @@ function buildConversationContextPrompt(task: TaskRecord, settings: AppSettings)
   return [
     '以下是本次图像创作的对话上下文，请在理解连续创作意图后执行最新请求。',
     context,
+    contextTasks.some((item) => item.outputImages.length > 0) ? '历史任务的输出图已作为附加参考图传入；如用户要求延续上一张图，请优先参考这些图片。' : '',
     '',
     `最新请求：${task.prompt}`,
-  ].join('\n')
+  ].filter(Boolean).join('\n')
+}
+
+async function getConversationContextImageDataUrls(task: TaskRecord, settings: AppSettings, existingImageIds: string[]) {
+  const existing = new Set(existingImageIds)
+  const imageIds: string[] = []
+  for (const contextTask of getConversationContextTasks(task, settings)) {
+    const imageId = contextTask.outputImages[contextTask.outputImages.length - 1]
+    if (imageId && !existing.has(imageId) && !imageIds.includes(imageId)) {
+      imageIds.push(imageId)
+    }
+  }
+
+  const dataUrls: string[] = []
+  for (const imageId of imageIds.slice(-settings.conversationContextCount)) {
+    const dataUrl = await ensureImageCached(imageId)
+    if (dataUrl) dataUrls.push(dataUrl)
+  }
+  return dataUrls
 }
 
 async function autoSaveTaskOutputs(task: TaskRecord, images: string[]) {
-  const { settings, showToast } = useStore.getState()
+  const { settings, showToast, setSettings } = useStore.getState()
   if (!settings.autoSaveToDirectory) return
 
-  if (shouldNotifyMissingDirectory()) {
+  if (!hasAutoSaveDirectory()) {
+    setSettings({ autoSaveToDirectory: false })
     showToast('自动保存需要先在右侧栏选择本地目录', 'error')
     return
   }
@@ -1170,48 +1280,13 @@ async function recoverFalTask(taskId: string) {
   }
 }
 
-async function ensureConversationStateForTasks(tasks: TaskRecord[]) {
-  const state = useStore.getState()
-  if (state.conversations.length > 0) {
-    if (!state.activeConversationId || !state.conversations.some((conversation) => conversation.id === state.activeConversationId)) {
-      useStore.setState({ activeConversationId: state.conversations[0].id })
-    }
-    return
-  }
-
-  if (tasks.length === 0) {
-    state.createConversation()
-    return
-  }
-
-  const sortedTasks = [...tasks].sort((a, b) => b.createdAt - a.createdAt)
-  const conversationId = genId()
-  const conversation: ConversationRecord = {
-    id: conversationId,
-    title: makeConversationTitle(sortedTasks[0].prompt) || '历史记录',
-    createdAt: sortedTasks[sortedTasks.length - 1]?.createdAt ?? Date.now(),
-    updatedAt: sortedTasks[0]?.createdAt ?? Date.now(),
-  }
-  const patchedTasks = tasks.map((task) => task.conversationId ? task : { ...task, conversationId })
-  useStore.setState({
-    conversations: [conversation],
-    activeConversationId: conversationId,
-    tasks: patchedTasks,
-  })
-  await Promise.all(
-    patchedTasks
-      .filter((task, index) => task !== tasks[index])
-      .map((task) => putTask(task)),
-  )
-}
-
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
   const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
   await Promise.all(interruptedTasks.map((task) => putTask(task)))
   useStore.getState().setTasks(tasks)
-  await ensureConversationStateForTasks(useStore.getState().tasks)
+  await reconcileConversationStateForTasks(useStore.getState().tasks)
   showSupportPromptForExistingLocalData(tasks)
   for (const task of tasks) {
     if (
@@ -1435,6 +1510,8 @@ async function executeTask(taskId: string) {
       if (!dataUrl) throw new Error('输入图片已不存在')
       inputDataUrls.push(dataUrl)
     }
+    const contextInputDataUrls = await getConversationContextImageDataUrls(task, settings, task.inputImageIds)
+    const requestInputDataUrls = [...inputDataUrls, ...contextInputDataUrls]
     let maskDataUrl: string | undefined
     if (task.maskImageId) {
       maskDataUrl = await ensureImageCached(task.maskImageId)
@@ -1443,9 +1520,9 @@ async function executeTask(taskId: string) {
 
     const result = await callImageApi({
       settings: requestSettings,
-      prompt: replaceImageMentionsForApi(buildConversationContextPrompt(task, settings), inputDataUrls.length),
+      prompt: replaceImageMentionsForApi(buildConversationContextPrompt(task, settings), requestInputDataUrls.length),
       params: task.params,
-      inputImageDataUrls: inputDataUrls,
+      inputImageDataUrls: requestInputDataUrls,
       maskDataUrl,
       onFalRequestEnqueued: (request) => {
         falRequestInfo = request
@@ -1765,6 +1842,31 @@ export async function removeMultipleTasks(taskIds: string[]) {
   showToast(`已删除 ${taskIds.length} 条记录`, 'success')
 }
 
+/** 删除对话及其任务 */
+export async function removeConversation(conversationId: string) {
+  const state = useStore.getState()
+  const taskIds = state.tasks.filter((task) => task.conversationId === conversationId).map((task) => task.id)
+  if (taskIds.length) {
+    await removeMultipleTasks(taskIds)
+  }
+
+  const latestState = useStore.getState()
+  let conversations = latestState.conversations.filter((conversation) => conversation.id !== conversationId)
+  if (!conversations.length) {
+    conversations = [createConversationRecord()]
+  }
+  const activeConversationId = latestState.activeConversationId === conversationId
+    ? conversations[0].id
+    : latestState.activeConversationId
+  useStore.setState({
+    conversations,
+    activeConversationId,
+    detailTaskId: null,
+    selectedTaskIds: [],
+  })
+  useStore.getState().showToast('已删除对话', 'success')
+}
+
 /** 删除单条任务 */
 export async function removeTask(task: TaskRecord) {
   const { tasks, setTasks, inputImages, showToast } = useStore.getState()
@@ -1819,6 +1921,8 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     thumbnailCache.clear()
     thumbnailBackfillIds.clear()
     setTasks([])
+    const conversation = createConversationRecord()
+    useStore.setState({ conversations: [conversation], activeConversationId: conversation.id, detailTaskId: null, selectedTaskIds: [] })
     useStore.setState({ supportPromptOpen: false, supportPromptSkippedForImportedData: false })
     clearInputImages()
     clearMaskDraft()
@@ -1826,6 +1930,7 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
 
   if (options.clearConfig) {
     useStore.setState({ dismissedCodexCliPrompts: [], supportPromptDismissed: false })
+    clearAutoSaveDirectory()
     setSettings({ ...DEFAULT_SETTINGS })
     setParams({ ...DEFAULT_PARAMS })
   }
@@ -1925,7 +2030,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
   try {
     const tasks = options.exportTasks ? await getAllTasks() : []
     const images = options.exportTasks ? await getAllImages() : []
-    const { settings } = useStore.getState()
+    const { settings, conversations } = useStore.getState()
     const exportedAt = Date.now()
     const imageCreatedAtFallback = new Map<string, number>()
 
@@ -1993,6 +2098,7 @@ export async function exportData(options: ExportOptions = { exportConfig: true, 
     if (options.exportConfig) manifest.settings = settings
     if (options.exportTasks) {
       manifest.tasks = tasks
+      manifest.conversations = conversations
       manifest.imageFiles = imageFiles
       manifest.thumbnailFiles = thumbnailFiles
     }
@@ -2077,8 +2183,14 @@ export async function importData(file: File, options: ImportOptions = { importCo
         await putTask(task)
       }
 
+      if (data.conversations) {
+        useStore.setState((state) => ({
+          conversations: mergeConversationRecords(state.conversations, data.conversations),
+        }))
+      }
+
       const tasks = await getAllTasks()
-      useStore.getState().setTasks(tasks)
+      await reconcileConversationStateForTasks(tasks, { orphanTitle: '导入记录' })
       skipSupportPromptForImportedData(tasks)
       scheduleThumbnailBackfill(importedImageIds)
     }

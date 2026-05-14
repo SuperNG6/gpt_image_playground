@@ -13,7 +13,6 @@ type WindowWithDirectoryPicker = Window & {
 }
 
 let directoryHandle: DirectoryHandle | null = null
-let missingDirectoryNotified = false
 
 export function isAutoSaveSupported() {
   return typeof window !== 'undefined' && typeof (window as WindowWithDirectoryPicker).showDirectoryPicker === 'function'
@@ -31,18 +30,11 @@ export async function selectAutoSaveDirectory() {
   const picker = (window as WindowWithDirectoryPicker).showDirectoryPicker
   if (!picker) throw new Error('当前浏览器不支持选择本地目录，请使用 Chrome 或 Edge。')
   directoryHandle = await picker({ mode: 'readwrite' })
-  missingDirectoryNotified = false
   return directoryHandle.name
 }
 
 export function clearAutoSaveDirectory() {
   directoryHandle = null
-}
-
-export function shouldNotifyMissingDirectory() {
-  if (directoryHandle || missingDirectoryNotified) return false
-  missingDirectoryNotified = true
-  return true
 }
 
 export async function saveDataUrlToAutoSaveDirectory(dataUrl: string, filename: string) {

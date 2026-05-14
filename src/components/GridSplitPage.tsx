@@ -28,6 +28,12 @@ function clampLine(value: number) {
   return Math.max(MIN_LINE_GAP, Math.min(100 - MIN_LINE_GAP, value))
 }
 
+function clampDraggedLine(value: number, lines: number[], index: number) {
+  const min = index > 0 ? lines[index - 1] + MIN_LINE_GAP : MIN_LINE_GAP
+  const max = index < lines.length - 1 ? lines[index + 1] - MIN_LINE_GAP : 100 - MIN_LINE_GAP
+  return Math.round(Math.max(min, Math.min(max, value)) * 10) / 10
+}
+
 function normalizeLines(lines: number[]) {
   return [...new Set(lines.map((line) => Math.round(clampLine(line) * 10) / 10))]
     .sort((a, b) => a - b)
@@ -183,12 +189,15 @@ export default function GridSplitPage() {
       dragging.axis === 'vertical'
         ? ((clientX - rect.left) / rect.width) * 100
         : ((clientY - rect.top) / rect.height) * 100
-    const value = clampLine(pct)
 
     if (dragging.axis === 'vertical') {
-      setVerticalLines((lines) => normalizeLines(lines.map((line, index) => (index === dragging.index ? value : line))))
+      setVerticalLines((lines) => lines.map((line, index) =>
+        index === dragging.index ? clampDraggedLine(pct, lines, index) : line,
+      ))
     } else {
-      setHorizontalLines((lines) => normalizeLines(lines.map((line, index) => (index === dragging.index ? value : line))))
+      setHorizontalLines((lines) => lines.map((line, index) =>
+        index === dragging.index ? clampDraggedLine(pct, lines, index) : line,
+      ))
     }
     clearSlices()
   }
@@ -650,7 +659,7 @@ export default function GridSplitPage() {
                         event.stopPropagation()
                         downloadBlob(slice.blob, slice.name)
                       }}
-                      className="absolute inset-x-2 bottom-8 rounded-md bg-gray-900/90 px-2 py-1 text-xs font-medium text-white opacity-0 transition group-hover:opacity-100"
+                      className="absolute inset-x-2 bottom-8 rounded-md bg-gray-900/90 px-2 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-gray-950"
                     >
                       下载此切片
                     </button>

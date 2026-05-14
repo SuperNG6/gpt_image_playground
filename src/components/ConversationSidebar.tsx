@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { useStore } from '../store'
-import { PlusIcon } from './icons'
+import { removeConversation, useStore } from '../store'
+import { PlusIcon, TrashIcon } from './icons'
 
 function formatTime(ts: number) {
   const date = new Date(ts)
@@ -32,6 +32,7 @@ export default function ConversationSidebar() {
   const setFilterStatus = useStore((s) => s.setFilterStatus)
   const setFilterFavorite = useStore((s) => s.setFilterFavorite)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
+  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const showToast = useStore((s) => s.showToast)
 
   const recentConversations = useMemo(
@@ -86,6 +87,18 @@ export default function ConversationSidebar() {
     setDetailTaskId(null)
   }
 
+  const confirmDeleteConversation = (id: string, title: string) => {
+    setConfirmDialog({
+      title: '删除对话',
+      message: `确定要删除「${title || '新对话'}」吗？此对话下的生成记录和关联图片也会被清理。`,
+      tone: 'danger',
+      confirmText: '删除',
+      action: () => {
+        void removeConversation(id)
+      },
+    })
+  }
+
   return (
     <aside
       data-no-drag-select
@@ -117,7 +130,7 @@ export default function ConversationSidebar() {
                   const meta = conversationMeta.get(conversation.id)
                   const isActive = conversation.id === activeConversationId
                   return (
-                    <button
+                    <div
                       key={conversation.id}
                       onClick={() => openConversation(conversation.id)}
                       className={`group rounded-md px-2 py-2 text-left transition ${
@@ -126,6 +139,14 @@ export default function ConversationSidebar() {
                           : 'hover:bg-gray-100 dark:hover:bg-white/[0.05]'
                       }`}
                       title={conversation.title}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openConversation(conversation.id)
+                        }
+                      }}
                     >
                       <div className="flex items-center gap-2">
                         <span
@@ -146,6 +167,18 @@ export default function ConversationSidebar() {
                         }`}>
                           {conversation.title || '新对话'}
                         </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            confirmDeleteConversation(conversation.id, conversation.title)
+                          }}
+                          className="shrink-0 rounded p-1 text-gray-300 opacity-60 transition hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 focus:opacity-100 dark:hover:bg-red-500/10"
+                          title="删除对话"
+                          aria-label={`删除对话 ${conversation.title || '新对话'}`}
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                       <div className="mt-1 flex items-center justify-between pl-3.5 text-[11px] text-gray-400 dark:text-gray-500">
                         <span>{formatTime(conversation.updatedAt)}</span>
@@ -155,7 +188,7 @@ export default function ConversationSidebar() {
                             : '空对话'}
                         </span>
                       </div>
-                    </button>
+                    </div>
                   )
                 })}
               </div>

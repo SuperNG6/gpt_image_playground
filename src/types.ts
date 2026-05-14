@@ -301,6 +301,7 @@ export interface ExportData {
   version: number
   exportedAt: string
   settings?: AppSettings
+  conversations?: ConversationRecord[]
   tasks?: TaskRecord[]
   /** imageId → 图片信息 */
   imageFiles?: Record<string, {
