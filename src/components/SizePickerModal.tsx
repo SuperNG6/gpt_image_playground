@@ -50,19 +50,19 @@ function RatioGlyph({ shape, active }: { shape: typeof RATIOS[number]['shape']; 
   const baseClass = active ? 'border-blue-500' : 'border-gray-400 dark:border-gray-500'
   if (shape === 'auto') {
     return (
-      <span className={`h-8 w-8 rounded-lg border-2 border-dashed ${baseClass}`} />
+      <span className={`h-5 w-5 rounded-md border-2 border-dashed ${baseClass}`} />
     )
   }
 
   const sizeClass = {
-    wide: 'h-4 w-12',
-    landscape: 'h-5 w-10',
-    square: 'h-9 w-9',
-    portrait: 'h-10 w-8',
-    portraitTall: 'h-12 w-7',
+    wide: 'h-2 w-7',
+    landscape: 'h-3 w-6',
+    square: 'h-5 w-5',
+    portrait: 'h-6 w-4',
+    portraitTall: 'h-7 w-3.5',
   }[shape]
 
-  return <span className={`rounded-sm border-[3px] ${baseClass} ${sizeClass}`} />
+  return <span className={`rounded-sm border-2 ${baseClass} ${sizeClass}`} />
 }
 
 export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, anchorElement }: Props) {
@@ -70,8 +70,8 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
   const [position, setPosition] = useState({
     left: 16,
     top: 16,
-    width: 540,
-    maxHeight: 680,
+    width: 380,
+    maxHeight: 460,
     transformOrigin: 'bottom center',
   })
   const currentPreset = findPresetForSize(currentSize)
@@ -92,7 +92,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     const gap = 10
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
-    const width = Math.min(540, Math.max(320, viewportWidth - margin * 2))
+    const width = Math.min(380, Math.max(320, viewportWidth - margin * 2))
     const rect = anchorElement?.getBoundingClientRect()
     const anchorLeft = rect ? rect.left + rect.width / 2 : viewportWidth / 2
     const left = Math.min(
@@ -102,8 +102,8 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
 
     const spaceAbove = rect ? rect.top - margin : viewportHeight / 2
     const spaceBelow = rect ? viewportHeight - rect.bottom - margin : viewportHeight / 2
-    const placeAbove = rect ? spaceAbove >= Math.min(560, spaceBelow) : true
-    const maxHeight = Math.min(680, Math.max(360, (placeAbove ? spaceAbove : spaceBelow) - gap))
+    const placeAbove = rect ? spaceAbove >= Math.min(390, spaceBelow) : true
+    const maxHeight = Math.min(460, Math.max(300, (placeAbove ? spaceAbove : spaceBelow) - gap))
     const panelHeight = Math.min(panelRef.current?.offsetHeight || maxHeight, maxHeight)
     const rawTop = rect
       ? placeAbove
@@ -175,13 +175,13 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     onClose()
   }
 
-  const tierButtonClass = (active: boolean) => `h-14 rounded-xl border text-lg font-semibold transition ${
+  const tierButtonClass = (active: boolean) => `h-9 rounded-lg border text-sm font-semibold transition ${
     active
       ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
       : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
   }`
 
-  const ratioButtonClass = (active: boolean) => `flex h-[104px] flex-col items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+  const ratioButtonClass = (active: boolean) => `flex h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg border text-[11px] font-semibold transition ${
     active
       ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
       : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
@@ -201,15 +201,15 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
         }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <div className="max-h-[inherit] overflow-y-auto p-5">
-          <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="max-h-[inherit] overflow-y-auto p-3.5">
+          <div className="mb-2.5 flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100">分辨率</h3>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">分辨率</h3>
               <p className="mt-1 font-mono text-xs text-gray-400 dark:text-gray-500">当前：{currentSize || 'auto'}</p>
             </div>
             <button
               onClick={onClose}
-              className="rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+              className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
               aria-label="关闭"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -218,7 +218,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
             </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2">
             {TIERS.map((item) => (
               <button
                 key={item}
@@ -234,11 +234,11 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
             ))}
           </div>
 
-          <div className="mt-7">
-            <h4 className="text-xl font-semibold text-gray-600 dark:text-gray-300">
+          <div className="mt-3">
+            <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-300">
               长宽比 {allowAuto ? <span className="text-gray-500 dark:text-gray-400">（默认 Auto）</span> : null}
             </h4>
-            <div className="mt-5 grid grid-cols-3 gap-4">
+            <div className="mt-2 grid grid-cols-3 gap-2">
               {ratioOptions.map((item) => {
                 const active = selectionMode === 'ratio' && selectedRatio === item.value
                 return (
@@ -259,8 +259,8 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
             </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
-            <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50/80 p-2.5 dark:border-white/[0.08] dark:bg-white/[0.03]">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">自定义分辨率</h4>
               {isClamped && (
                 <span className="rounded-full bg-yellow-100 px-2 py-1 text-[11px] font-medium text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300">
@@ -268,9 +268,9 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
               <label>
-                <span className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">宽</span>
+                <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">宽</span>
                 <input
                   type="number"
                   min={1}
@@ -280,13 +280,13 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                     setCustomW(e.target.value)
                     setSelectionMode('resolution')
                   }}
-                  className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200 dark:focus:border-blue-500/60 dark:focus:ring-blue-500/15"
+                  className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200 dark:focus:border-blue-500/60 dark:focus:ring-blue-500/15"
                   placeholder="1024"
                 />
               </label>
-              <span className="mb-3 text-lg font-semibold text-gray-400 dark:text-gray-500">×</span>
+              <span className="mb-1.5 text-base font-semibold text-gray-400 dark:text-gray-500">×</span>
               <label>
-                <span className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">高</span>
+                <span className="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">高</span>
                 <input
                   type="number"
                   min={1}
@@ -296,28 +296,27 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                     setCustomH(e.target.value)
                     setSelectionMode('resolution')
                   }}
-                  className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200 dark:focus:border-blue-500/60 dark:focus:ring-blue-500/15"
+                  className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200 dark:focus:border-blue-500/60 dark:focus:ring-blue-500/15"
                   placeholder="1024"
                 />
               </label>
             </div>
-            <p className="mt-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+            <p className="mt-1 line-clamp-1 text-[10px] leading-relaxed text-gray-500 dark:text-gray-400" title={`提示：${SIZE_LIMIT_TEXT}`}>
               提示：{SIZE_LIMIT_TEXT}
             </p>
           </div>
 
-          <div className="mt-5 rounded-2xl bg-gray-50 px-4 py-3 dark:bg-white/[0.03]">
-            <div className="text-xs text-gray-400 dark:text-gray-500">将使用</div>
-            <div className="mt-1 font-mono text-lg font-semibold text-gray-800 dark:text-gray-100">
-              {previewSize || '尺寸无效'}
+          <div className="mt-3 grid grid-cols-[1fr_auto_auto] items-center gap-2">
+            <div className="min-w-0 rounded-xl bg-gray-50 px-3 py-2 dark:bg-white/[0.03]">
+              <div className="text-[10px] leading-none text-gray-400 dark:text-gray-500">将使用</div>
+              <div className="mt-1 truncate font-mono text-sm font-semibold text-gray-800 dark:text-gray-100">
+                {previewSize || '尺寸无效'}
+              </div>
             </div>
-          </div>
-
-          <div className="mt-4 flex gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+              className="rounded-xl bg-gray-100 px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
             >
               取消
             </button>
@@ -325,7 +324,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
               type="button"
               onClick={applySize}
               disabled={!previewSize}
-              className="flex-1 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               确定
             </button>
