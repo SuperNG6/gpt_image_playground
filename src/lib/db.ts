@@ -1,10 +1,12 @@
-import type { TaskRecord, StoredImage, StoredImageThumbnail } from '../types'
+import type { TaskRecord, StoredImage, StoredImageThumbnail, SlicerHistoryEntry } from '../types'
 
 const DB_NAME = 'gpt-image-playground'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
 const STORE_THUMBNAILS = 'thumbnails'
+const STORE_SLICER_HISTORY = 'slicerHistory'
+const SLICER_HISTORY_LEGACY_KEY = 'gpt-image-slicer-history'
 const THUMBNAIL_MAX_SIZE = 720
 const THUMBNAIL_QUALITY = 0.9
 const THUMBNAIL_VERSION = 2
@@ -24,6 +26,20 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_THUMBNAILS)) {
         db.createObjectStore(STORE_THUMBNAILS, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(STORE_SLICER_HISTORY)) {
+        const historyStore = db.createObjectStore(STORE_SLICER_HISTORY, { keyPath: 'id' })
+        // 一次性从 localStorage 迁移旧数据
+        try {
+          const raw = localStorage.getItem(SLICER_HISTORY_LEGACY_KEY)
+          if (raw) {
+            const entries = JSON.parse(raw) as SlicerHistoryEntry[]
+            for (const entry of entries) historyStore.put(entry)
+            localStorage.removeItem(SLICER_HISTORY_LEGACY_KEY)
+          }
+        } catch {
+          // 迁移失败静默忽略，不阻塞 DB 升级
+        }
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -134,9 +150,7 @@ export function getAllImages(): Promise<StoredImage[]> {
 }
 
 export function getAllImageIds(): Promise<string[]> {
-  return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.getAllKeys()).then((keys) =>
-    keys.map(String),
-  )
+  return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.getAllKeys()).then((keys) => keys.map(String))
 }
 
 export function putImage(image: StoredImage): Promise<IDBValidKey> {
@@ -202,7 +216,10 @@ function hashDataUrlFallback(dataUrl: string): string {
  * 存储图片，若已存在（按 hash 去重）则跳过。
  * 返回 image id。
  */
-export async function storeImage(dataUrl: string, source: NonNullable<StoredImage['source']> = 'upload'): Promise<string> {
+export async function storeImage(
+  dataUrl: string,
+  source: NonNullable<StoredImage['source']> = 'upload',
+): Promise<string> {
   const id = await hashDataUrl(dataUrl)
   const existing = await getImage(id)
   if (!existing) {
@@ -226,7 +243,11 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
     }
   } else if ((await getStoredImageThumbnail(id))?.thumbnailVersion !== THUMBNAIL_VERSION) {
     const thumbnail = await safeCreateImageThumbnail(existing.dataUrl)
-    if (thumbnail.width && thumbnail.height && (existing.width !== thumbnail.width || existing.height !== thumbnail.height)) {
+    if (
+      thumbnail.width &&
+      thumbnail.height &&
+      (existing.width !== thumbnail.width || existing.height !== thumbnail.height)
+    ) {
       await putImage({ ...existing, width: thumbnail.width, height: thumbnail.height })
     }
     if (thumbnail.thumbnailDataUrl) {
@@ -279,4 +300,18 @@ async function safeCreateImageThumbnail(dataUrl: string): Promise<Partial<Omit<S
   } catch {
     return {}
   }
+}
+
+// ===== Slicer History =====
+
+export function getAllSlicerHistory(): Promise<SlicerHistoryEntry[]> {
+  return dbTransaction(STORE_SLICER_HISTORY, 'readonly', (s) => s.getAll())
+}
+
+export function putSlicerHistoryEntry(entry: SlicerHistoryEntry): Promise<IDBValidKey> {
+  return dbTransaction(STORE_SLICER_HISTORY, 'readwrite', (s) => s.put(entry))
+}
+
+export function deleteSlicerHistoryEntry(id: string): Promise<undefined> {
+  return dbTransaction(STORE_SLICER_HISTORY, 'readwrite', (s) => s.delete(id))
 }

@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { type SlicerHistoryEntry, getSlicerHistory, deleteSlicerEntry } from '../lib/slicerHistory'
+import type { SlicerHistoryEntry } from '../types'
 import { TrashIcon } from './icons'
 
 function formatTime(ts: number) {
@@ -13,21 +12,15 @@ function formatTime(ts: number) {
 }
 
 interface Props {
-  version: number
+  history: SlicerHistoryEntry[]
   onRestore: (entry: SlicerHistoryEntry) => void
+  onDelete: (id: string) => void
 }
 
-export default function SlicerSidebar({ version, onRestore }: Props) {
-  const [history, setHistory] = useState<SlicerHistoryEntry[]>(() => getSlicerHistory())
-
-  useEffect(() => {
-    setHistory(getSlicerHistory())
-  }, [version])
-
+export default function SlicerSidebar({ history, onRestore, onDelete }: Props) {
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    deleteSlicerEntry(id)
-    setHistory(getSlicerHistory())
+    onDelete(id)
   }
 
   return (
@@ -66,7 +59,7 @@ export default function SlicerSidebar({ version, onRestore }: Props) {
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-medium text-gray-700 dark:text-gray-200">
-                          {entry.cols} × {entry.rows} 宫格
+                          {entry.vLines.length + 1} × {entry.hLines.length + 1} 宫格
                         </div>
                         <div className="text-[11px] text-gray-400 dark:text-gray-500">
                           {formatTime(entry.timestamp)}

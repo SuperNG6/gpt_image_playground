@@ -34,9 +34,36 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
   const themeOptions = [
-    { value: 'light', label: '浅', title: '浅色模式' },
-    { value: 'dark', label: '深', title: '深色模式' },
-    { value: 'auto', label: '自', title: '跟随系统' },
+    {
+      value: 'light',
+      title: '浅色模式',
+      icon: (
+        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+          <circle cx="8" cy="8" r="3" />
+          <path
+            d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M11.89 4.11l1.06-1.06M3.05 12.95l1.06-1.06"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            fill="none"
+          />
+        </svg>
+      ),
+    },
+    {
+      value: 'dark',
+      title: '深色模式',
+      icon: (
+        <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+          <path d="M13.5 10.5A6 6 0 0 1 5.5 2.5a6 6 0 1 0 8 8z" />
+        </svg>
+      ),
+    },
+    {
+      value: 'auto',
+      title: '跟随系统',
+      icon: <span className="text-[11px] font-semibold leading-none">auto</span>,
+    },
   ] as const
 
   useEffect(() => {
@@ -73,7 +100,9 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
         setIsPwaInstalled(isInstalledPwa())
       }
     } else {
-      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+      const isIos =
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
       if (isIos) {
         setConfirmDialog({
           title: '安装为应用',
@@ -86,7 +115,8 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
       } else {
         setConfirmDialog({
           title: '安装为应用',
-          message: '请在浏览器的菜单中选择「添加到主屏幕」或「安装应用」。\n\n（如果在微信等内置浏览器中，请先在外部浏览器打开）',
+          message:
+            '请在浏览器的菜单中选择「添加到主屏幕」或「安装应用」。\n\n（如果在微信等内置浏览器中，请先在外部浏览器打开）',
           showCancel: false,
           confirmText: '我知道了',
           icon: 'info',
@@ -98,12 +128,17 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
 
   return (
     <>
-      <header data-no-drag-select className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]">
+      <header
+        data-no-drag-select
+        className="safe-area-top fixed top-0 left-0 right-0 z-40 bg-white/80 dark:bg-gray-950/80 backdrop-blur border-b border-gray-200 dark:border-white/[0.08]"
+      >
         <div className="safe-area-x safe-header-inner max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex flex-1 min-w-0 items-center gap-3 pr-2">
             {isSlicerRoute && (
               <button
-                onClick={() => { window.location.hash = '' }}
+                onClick={() => {
+                  window.location.hash = ''
+                }}
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-white"
               >
                 <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -137,10 +172,7 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {!isPwaInstalled && (
-              <div
-                className="relative"
-                {...installTooltip.handlers}
-              >
+              <div className="relative" {...installTooltip.handlers}>
                 <button
                   onClick={() => {
                     dismissAllTooltips()
@@ -168,10 +200,7 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
                 </ViewportTooltip>
               </div>
             )}
-            <div
-              className="relative"
-              {...helpTooltip.handlers}
-            >
+            <div className="relative" {...helpTooltip.handlers}>
               <button
                 onClick={() => {
                   dismissAllTooltips()
@@ -198,10 +227,7 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
                 操作指南
               </ViewportTooltip>
             </div>
-            <div
-              className="relative"
-              {...settingsTooltip.handlers}
-            >
+            <div className="relative" {...settingsTooltip.handlers}>
               <button
                 onClick={() => setShowSettings(true)}
                 className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
@@ -250,7 +276,7 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
                     title={option.title}
                     aria-pressed={active}
                   >
-                    {option.label}
+                    {option.icon}
                   </button>
                 )
               })}

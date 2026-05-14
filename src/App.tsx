@@ -4,6 +4,7 @@ import { useStore } from './store'
 import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
 import { useApplyThemeMode } from './hooks/useApplyThemeMode'
+import { useSlicerHistory } from './hooks/useSlicerHistory'
 import Header from './components/Header'
 import ConversationSidebar from './components/ConversationSidebar'
 import SlicerSidebar from './components/SlicerSidebar'
@@ -20,15 +21,15 @@ import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import GridSplitPage from './components/GridSplitPage'
-import type { SlicerHistoryEntry } from './lib/slicerHistory'
+import type { SlicerHistoryEntry } from './types'
 
 export default function App() {
   const themeMode = useStore((s) => s.settings.themeMode)
   const setSettings = useStore((s) => s.setSettings)
   const [route, setRoute] = useState(() => window.location.hash)
   const isSlicerRoute = route === '#/slicer'
-  const [slicerSidebarVersion, setSlicerSidebarVersion] = useState(0)
   const [slicerRestoreEntry, setSlicerRestoreEntry] = useState<SlicerHistoryEntry | null>(null)
+  const { history: slicerHistory, refresh: refreshSlicerHistory, deleteEntry: deleteSlicerEntry } = useSlicerHistory()
   useDockerApiUrlMigrationNotice()
   useApplyThemeMode(themeMode)
 
@@ -70,7 +71,7 @@ export default function App() {
     <>
       <Header isSlicerRoute={isSlicerRoute} />
       {isSlicerRoute ? (
-        <SlicerSidebar version={slicerSidebarVersion} onRestore={setSlicerRestoreEntry} />
+        <SlicerSidebar history={slicerHistory} onRestore={setSlicerRestoreEntry} onDelete={deleteSlicerEntry} />
       ) : (
         <ConversationSidebar />
       )}
@@ -80,7 +81,7 @@ export default function App() {
           <GridSplitPage
             restoreEntry={slicerRestoreEntry}
             onRestored={() => setSlicerRestoreEntry(null)}
-            onHistoryUpdated={() => setSlicerSidebarVersion((v) => v + 1)}
+            onHistoryUpdated={refreshSlicerHistory}
           />
         ) : (
           <div className="safe-area-x max-w-7xl mx-auto pt-4 md:pt-0">

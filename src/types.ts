@@ -65,7 +65,12 @@ export interface ApiProfile {
   codexCli: boolean
   apiProxy: boolean
   responseFormatB64Json?: boolean
-  providerDrafts?: Partial<Record<ApiProvider, Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json'>>>>
+  providerDrafts?: Partial<
+    Record<
+      ApiProvider,
+      Partial<Pick<ApiProfile, 'baseUrl' | 'model' | 'apiMode' | 'codexCli' | 'apiProxy' | 'responseFormatB64Json'>>
+    >
+  >
 }
 
 export interface AppSettings {
@@ -252,11 +257,13 @@ export interface ImageApiResponse {
 
 export interface ResponsesOutputItem {
   type?: string
-  result?: string | {
-    b64_json?: string
-    image?: string
-    data?: string
-  }
+  result?:
+    | string
+    | {
+        b64_json?: string
+        image?: string
+        data?: string
+      }
   size?: string
   quality?: string
   output_format?: string
@@ -298,6 +305,19 @@ export interface FalApiResponse {
 
 // ===== 导出数据 =====
 
+// ===== 切图历史 =====
+
+export interface SlicerHistoryEntry {
+  id: string
+  imageId: string
+  thumb: string
+  timestamp: number
+  cols: number
+  rows: number
+  vLines: number[]
+  hLines: number[]
+}
+
 /** ZIP manifest.json 格式 */
 export interface ExportData {
   version: number
@@ -306,18 +326,24 @@ export interface ExportData {
   conversations?: ConversationRecord[]
   tasks?: TaskRecord[]
   /** imageId → 图片信息 */
-  imageFiles?: Record<string, {
-    path: string
-    createdAt?: number
-    source?: 'upload' | 'generated' | 'mask'
-    width?: number
-    height?: number
-  }>
+  imageFiles?: Record<
+    string,
+    {
+      path: string
+      createdAt?: number
+      source?: 'upload' | 'generated' | 'mask'
+      width?: number
+      height?: number
+    }
+  >
   /** imageId → 缩略图信息 */
-  thumbnailFiles?: Record<string, {
-    path: string
-    width?: number
-    height?: number
-    thumbnailVersion?: number
-  }>
+  thumbnailFiles?: Record<
+    string,
+    {
+      path: string
+      width?: number
+      height?: number
+      thumbnailVersion?: number
+    }
+  >
 }

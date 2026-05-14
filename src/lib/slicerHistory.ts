@@ -1,31 +1,14 @@
-import { storeImage, getImage } from './db'
+import type { SlicerHistoryEntry } from '../types'
+import { storeImage, getImage, getAllSlicerHistory, putSlicerHistoryEntry, deleteSlicerHistoryEntry } from './db'
 
-const STORAGE_KEY = 'gpt-image-slicer-history'
+export type { SlicerHistoryEntry }
+
 const MAX_ENTRIES = 30
 const THUMB_SIZE = 80
 
-export interface SlicerHistoryEntry {
-  id: string
-  imageId: string
-  thumb: string
-  timestamp: number
-  cols: number
-  rows: number
-  vLines: number[]
-  hLines: number[]
-}
-
-export function getSlicerHistory(): SlicerHistoryEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as SlicerHistoryEntry[]) : []
-  } catch {
-    return []
-  }
-}
-
-function saveHistory(entries: SlicerHistoryEntry[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+export async function getSlicerHistory(): Promise<SlicerHistoryEntry[]> {
+  const entries = await getAllSlicerHistory()
+  return entries.sort((a, b) => b.timestamp - a.timestamp)
 }
 
 export async function saveSlicerEntry(
@@ -46,14 +29,20 @@ export async function saveSlicerEntry(
     vLines: [...vLines],
     hLines: [...hLines],
   }
-  const history = getSlicerHistory()
-  saveHistory([entry, ...history].slice(0, MAX_ENTRIES))
+  await putSlicerHistoryEntry(entry)
+
+  // 超出上限时删除最旧条目
+  const all = await getAllSlicerHistory()
+  const sorted = all.sort((a, b) => b.timestamp - a.timestamp)
+  if (sorted.length > MAX_ENTRIES) {
+    await Promise.all(sorted.slice(MAX_ENTRIES).map((e) => deleteSlicerHistoryEntry(e.id)))
+  }
+
   return entry
 }
 
-export function deleteSlicerEntry(id: string): void {
-  const history = getSlicerHistory()
-  saveHistory(history.filter((e) => e.id !== id))
+export async function deleteSlicerEntry(id: string): Promise<void> {
+  await deleteSlicerHistoryEntry(id)
 }
 
 export async function loadSlicerImage(imageId: string): Promise<string | null> {
@@ -62,7 +51,7 @@ export async function loadSlicerImage(imageId: string): Promise<string | null> {
 }
 
 function createThumb(src: string, maxSize: number): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => {
       const scale = Math.min(maxSize / img.width, maxSize / img.height, 1)
@@ -72,7 +61,7 @@ function createThumb(src: string, maxSize: number): Promise<string> {
       canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height)
       resolve(canvas.toDataURL('image/jpeg', 0.7))
     }
-    img.onerror = () => resolve('')
+    img.onerror = () => reject(new Error('缩略图生成失败'))
     img.src = src
   })
 }
