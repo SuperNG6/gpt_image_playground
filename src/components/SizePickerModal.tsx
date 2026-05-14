@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
-import ViewportTooltip from './ViewportTooltip'
+import { calculateImageSize, normalizeImageSize, type SizeTier } from '../lib/size'
 
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
-const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
+const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
 const RATIOS = [
-  { label: '1:1', value: '1:1' },
-  { label: '3:2', value: '3:2' },
-  { label: '2:3', value: '2:3' },
-  { label: '16:9', value: '16:9' },
-  { label: '9:16', value: '9:16' },
-  { label: '4:3', value: '4:3' },
-  { label: '3:4', value: '3:4' },
-  { label: '21:9', value: '21:9' },
-]
+  { label: 'Auto', value: 'auto', shape: 'auto' },
+  { label: '21:9', value: '21:9', shape: 'wide' },
+  { label: '16:9', value: '16:9', shape: 'wide' },
+  { label: '3:2', value: '3:2', shape: 'landscape' },
+  { label: '4:3', value: '4:3', shape: 'landscape' },
+  { label: '5:4', value: '5:4', shape: 'landscape' },
+  { label: '1:1', value: '1:1', shape: 'square' },
+  { label: '4:5', value: '4:5', shape: 'portrait' },
+  { label: '3:4', value: '3:4', shape: 'portrait' },
+  { label: '2:3', value: '2:3', shape: 'portraitTall' },
+  { label: '9:16', value: '9:16', shape: 'portraitTall' },
+] as const
 
 interface Props {
   currentSize: string
@@ -23,7 +25,7 @@ interface Props {
   anchorElement?: HTMLElement | null
 }
 
-type Mode = 'auto' | 'ratio' | 'resolution'
+type SelectionMode = 'ratio' | 'resolution'
 
 function parseSize(size: string) {
   const match = size.match(/^\s*(\d+)\s*[xX×]\s*(\d+)\s*$/)
@@ -35,6 +37,7 @@ function findPresetForSize(size: string) {
   const normalized = normalizeImageSize(size)
   for (const tier of TIERS) {
     for (const ratio of RATIOS) {
+      if (ratio.value === 'auto') continue
       if (calculateImageSize(tier, ratio.value) === normalized) {
         return { tier, ratio: ratio.value }
       }
@@ -43,35 +46,44 @@ function findPresetForSize(size: string) {
   return null
 }
 
+function RatioGlyph({ shape, active }: { shape: typeof RATIOS[number]['shape']; active: boolean }) {
+  const baseClass = active ? 'border-blue-500' : 'border-gray-400 dark:border-gray-500'
+  if (shape === 'auto') {
+    return (
+      <span className={`h-8 w-8 rounded-lg border-2 border-dashed ${baseClass}`} />
+    )
+  }
+
+  const sizeClass = {
+    wide: 'h-4 w-12',
+    landscape: 'h-5 w-10',
+    square: 'h-9 w-9',
+    portrait: 'h-10 w-8',
+    portraitTall: 'h-12 w-7',
+  }[shape]
+
+  return <span className={`rounded-sm border-[3px] ${baseClass} ${sizeClass}`} />
+}
+
 export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, anchorElement }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({
     left: 16,
     top: 16,
-    width: 448,
-    maxHeight: 560,
-    contentMaxHeight: 320,
+    width: 540,
+    maxHeight: 680,
     transformOrigin: 'bottom center',
   })
   const currentPreset = findPresetForSize(currentSize)
   const currentParsedSize = parseSize(currentSize)
-  const [mode, setMode] = useState<Mode>(() => {
-    if (!currentSize || currentSize === 'auto') return allowAuto ? 'auto' : 'ratio'
-    if (currentPreset) return 'ratio'
-    return 'resolution'
-  })
-
-  // Ratio mode state
-  const [tier, setTier] = useState<SizeTier>(currentPreset?.tier ?? '1K')
-  const [ratio, setRatio] = useState(currentPreset?.ratio ?? (allowAuto ? '1:1' : '4:3'))
-  const [customRatio, setCustomRatio] = useState('16:9')
-
-  // Resolution mode state
+  const initialRatio = currentSize === 'auto' && allowAuto
+    ? 'auto'
+    : currentPreset?.ratio ?? (allowAuto ? 'auto' : '4:3')
+  const [tier, setTier] = useState<SizeTier>(currentPreset?.tier ?? '2K')
+  const [selectedRatio, setSelectedRatio] = useState(initialRatio)
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>(() => currentPreset || currentSize === 'auto' ? 'ratio' : 'resolution')
   const [customW, setCustomW] = useState(currentParsedSize?.width ?? '1024')
   const [customH, setCustomH] = useState(currentParsedSize?.height ?? '1024')
-
-  const [hintVisible, setHintVisible] = useState(false)
-  const hintTimerRef = useRef<number | null>(null)
 
   const updatePosition = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -80,7 +92,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     const gap = 10
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
-    const width = Math.min(448, Math.max(320, viewportWidth - margin * 2))
+    const width = Math.min(540, Math.max(320, viewportWidth - margin * 2))
     const rect = anchorElement?.getBoundingClientRect()
     const anchorLeft = rect ? rect.left + rect.width / 2 : viewportWidth / 2
     const left = Math.min(
@@ -90,9 +102,8 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
 
     const spaceAbove = rect ? rect.top - margin : viewportHeight / 2
     const spaceBelow = rect ? viewportHeight - rect.bottom - margin : viewportHeight / 2
-    const placeAbove = rect ? spaceAbove >= Math.min(460, spaceBelow) : true
-    const availableHeight = Math.max(280, (placeAbove ? spaceAbove : spaceBelow) - gap)
-    const maxHeight = Math.min(560, availableHeight)
+    const placeAbove = rect ? spaceAbove >= Math.min(560, spaceBelow) : true
+    const maxHeight = Math.min(680, Math.max(360, (placeAbove ? spaceAbove : spaceBelow) - gap))
     const panelHeight = Math.min(panelRef.current?.offsetHeight || maxHeight, maxHeight)
     const rawTop = rect
       ? placeAbove
@@ -109,14 +120,13 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
       top,
       width,
       maxHeight,
-      contentMaxHeight: Math.max(180, maxHeight - 226),
       transformOrigin: placeAbove ? 'bottom center' : 'top center',
     })
   }, [anchorElement])
 
   useLayoutEffect(() => {
     updatePosition()
-  }, [updatePosition, mode, tier, ratio])
+  }, [updatePosition, tier, selectedRatio, selectionMode, customW, customH])
 
   useEffect(() => {
     updatePosition()
@@ -136,69 +146,28 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
-  useEffect(() => () => {
-    if (hintTimerRef.current != null) window.clearTimeout(hintTimerRef.current)
-  }, [])
-
-  const activeRatio = ratio === 'custom' ? customRatio : ratio
-  const parsedCustomRatio = parseRatio(customRatio)
-  const customRatioValid = ratio !== 'custom' || Boolean(parsedCustomRatio)
-  const customRatioClamped = Boolean(
-    ratio === 'custom' &&
-    parsedCustomRatio &&
-    Math.max(parsedCustomRatio.width, parsedCustomRatio.height) / Math.min(parsedCustomRatio.width, parsedCustomRatio.height) > 3,
-  )
+  const ratioOptions = allowAuto ? RATIOS : RATIOS.filter((ratio) => ratio.value !== 'auto')
 
   const previewSize = useMemo(() => {
-    if (mode === 'auto') return 'auto'
-    
-    if (mode === 'ratio') {
-      const size = calculateImageSize(tier, activeRatio)
-      return size ? normalizeImageSize(size) : ''
+    if (selectionMode === 'ratio') {
+      if (selectedRatio === 'auto') return allowAuto ? 'auto' : ''
+      return calculateImageSize(tier, selectedRatio) ?? ''
     }
-    
-    if (mode === 'resolution') {
-      const w = parseInt(customW, 10)
-      const h = parseInt(customH, 10)
-      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-        return normalizeImageSize(`${w}x${h}`)
-      }
-      return ''
+
+    const w = parseInt(customW, 10)
+    const h = parseInt(customH, 10)
+    if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+      return normalizeImageSize(`${w}x${h}`)
     }
-    
     return ''
-  }, [mode, tier, activeRatio, customW, customH])
+  }, [allowAuto, customH, customW, selectedRatio, selectionMode, tier])
 
   const isClamped = useMemo(() => {
-    if (!previewSize || previewSize === 'auto') return false
-    if (mode === 'ratio' && ratio === 'custom') return customRatioClamped
-    if (mode === 'resolution') {
-      const w = parseInt(customW, 10)
-      const h = parseInt(customH, 10)
-      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
-        return `${w}x${h}` !== previewSize
-      }
-    }
-    return false
-  }, [mode, ratio, customRatioClamped, customW, customH, previewSize])
-
-  const showHint = () => setHintVisible(true)
-  const hideHint = () => {
-    setHintVisible(false)
-    clearHintTimer()
-  }
-  const clearHintTimer = () => {
-    if (hintTimerRef.current != null) {
-      window.clearTimeout(hintTimerRef.current)
-      hintTimerRef.current = null
-    }
-  }
-  const startHintTouch = () => {
-    hintTimerRef.current = window.setTimeout(() => {
-      setHintVisible(true)
-      hintTimerRef.current = null
-    }, 450)
-  }
+    if (selectionMode !== 'resolution' || !previewSize) return false
+    const w = parseInt(customW, 10)
+    const h = parseInt(customH, 10)
+    return Number.isFinite(w) && Number.isFinite(h) && `${w}x${h}` !== previewSize
+  }, [customH, customW, previewSize, selectionMode])
 
   const applySize = () => {
     if (!previewSize) return
@@ -206,18 +175,23 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     onClose()
   }
 
-  const buttonClass = (active: boolean) => {
-    return `rounded-xl border px-3 py-2 text-sm transition ${active
-      ? 'border-blue-400 bg-blue-50 text-blue-600 dark:border-blue-500/50 dark:bg-blue-500/10 dark:text-blue-300'
-      : 'border-gray-200/70 bg-white/60 text-gray-600 hover:bg-gray-50 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06]'
-    }`
-  }
+  const tierButtonClass = (active: boolean) => `h-14 rounded-xl border text-lg font-semibold transition ${
+    active
+      ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
+      : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
+  }`
+
+  const ratioButtonClass = (active: boolean) => `flex h-[104px] flex-col items-center justify-center gap-2 rounded-xl border text-sm font-semibold transition ${
+    active
+      ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
+      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
+  }`
 
   return (
     <div data-no-drag-select data-size-picker-root className="fixed inset-0 z-[70]" onPointerDown={onClose}>
       <div
         ref={panelRef}
-        className="fixed z-10 rounded-2xl border border-gray-200/80 bg-white/95 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-xl animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
+        className="fixed z-10 overflow-hidden rounded-2xl border border-gray-200/80 bg-white/[0.98] shadow-[0_20px_70px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-xl animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/[0.98] dark:ring-white/10"
         style={{
           left: position.left,
           top: position.top,
@@ -227,195 +201,135 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
         }}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">设置图像尺寸</h3>
-            <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">当前：{currentSize || 'auto'}</p>
+        <div className="max-h-[inherit] overflow-y-auto p-5">
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100">分辨率</h3>
+              <p className="mt-1 font-mono text-xs text-gray-400 dark:text-gray-500">当前：{currentSize || 'auto'}</p>
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-full p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+              aria-label="关闭"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-full p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
-            aria-label="关闭"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
 
-        <div className="space-y-4">
-          <div className="flex rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04]">
-            {allowAuto && (
+          <div className="grid grid-cols-3 gap-4">
+            {TIERS.map((item) => (
               <button
-                onClick={() => setMode('auto')}
-                className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'auto' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
+                key={item}
+                type="button"
+                className={tierButtonClass(selectionMode === 'ratio' && tier === item)}
+                onClick={() => {
+                  setTier(item)
+                  setSelectionMode('ratio')
+                }}
               >
-                自动
+                {item}
               </button>
-            )}
-            <button
-              onClick={() => setMode('ratio')}
-              className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'ratio' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-            >
-              按比例
-            </button>
-            <button
-              onClick={() => setMode('resolution')}
-              className={`flex-1 rounded-lg py-1.5 text-sm font-medium transition ${mode === 'resolution' ? 'bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-            >
-              自定义宽高
-            </button>
+            ))}
           </div>
 
-          <div
-            className="overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1"
-            style={{ maxHeight: position.contentMaxHeight }}
-          >
-            {mode === 'auto' && (
-              <div className="flex h-full animate-fade-in items-center justify-center pt-8 pb-4 text-center">
-                <div>
-                  <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-500 dark:bg-blue-500/10">
-                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
-                  </div>
-                  <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200">自动尺寸</h4>
-                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">不向模型传递具体的分辨率参数<br/>由模型自己决定生成尺寸</p>
-                </div>
-              </div>
-            )}
-
-            {mode === 'ratio' && (
-              <div className="space-y-5 animate-fade-in">
-                <section>
-                  <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">基准分辨率</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {TIERS.map((item) => (
-                      <button key={item} className={buttonClass(tier === item)} onClick={() => setTier(item)}>
-                        {item}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                <section>
-                  <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">图像比例</div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {RATIOS.map((item) => (
-                      <button key={item.value} className={buttonClass(ratio === item.value)} onClick={() => setRatio(item.value)}>
-                        {item.label}
-                      </button>
-                    ))}
-                    <button className={`${buttonClass(ratio === 'custom')} col-span-4`} onClick={() => setRatio('custom')}>
-                      自定义比例
-                    </button>
-                  </div>
-                </section>
-
-                {ratio === 'custom' && (
-                  <label className="block animate-fade-in">
-                    <span className="mb-2 block text-xs font-medium text-gray-400 dark:text-gray-500">输入自定义比例</span>
-                    <input
-                      value={customRatio}
-                      onChange={(e) => setCustomRatio(e.target.value)}
-                      placeholder="例如 5:4 / 2.39:1"
-                      className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition ${
-                        customRatioValid
-                          ? 'border-gray-200/70 bg-white/60 text-gray-700 focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50'
-                          : 'border-red-300 bg-white/60 text-gray-700 focus:border-red-400 dark:border-red-500/40 dark:bg-white/[0.03] dark:text-gray-200'
-                      }`}
-                    />
-                  </label>
-                )}
-              </div>
-            )}
-
-            {mode === 'resolution' && (
-              <div className="space-y-5 animate-fade-in">
-                <section>
-                  <div className="mb-4 text-xs font-medium text-gray-400 dark:text-gray-500">输入具体像素值</div>
-                  <div className="flex items-center gap-4">
-                    <label className="flex-1">
-                      <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400">宽度 (Width)</span>
-                      <input
-                        type="number"
-                        value={customW}
-                        onChange={(e) => setCustomW(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                        placeholder="例如 1024"
-                      />
-                    </label>
-                    <div className="mt-5 text-gray-300 dark:text-gray-600">
-                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </div>
-                    <label className="flex-1">
-                      <span className="mb-1.5 block text-xs text-gray-500 dark:text-gray-400">高度 (Height)</span>
-                      <input
-                        type="number"
-                        value={customH}
-                        onChange={(e) => setCustomH(e.target.value)}
-                        className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
-                        placeholder="例如 1024"
-                      />
-                    </label>
-                  </div>
-                </section>
-                <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-3 text-xs text-gray-600 dark:border-white/[0.05] dark:bg-white/[0.02] dark:text-gray-400">
-                  <div className="flex items-start gap-2">
-                    <svg className="mt-[2px] h-4 w-4 flex-shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div className="whitespace-pre-line leading-relaxed">{SIZE_LIMIT_TEXT}</div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl bg-gray-50 px-4 py-3 dark:bg-white/[0.03]">
-            <div className="text-xs text-gray-400 dark:text-gray-500">将使用</div>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="font-mono text-lg font-semibold text-gray-800 dark:text-gray-100">
-                {previewSize || '尺寸无效'}
-              </span>
-              {isClamped && (
-                <div
-                  className="relative flex items-center"
-                  onMouseEnter={showHint}
-                  onMouseLeave={hideHint}
-                  onTouchStart={startHintTouch}
-                  onTouchEnd={clearHintTimer}
-                  onTouchCancel={hideHint}
-                  onClick={showHint}
-                >
-                  <svg className="w-5 h-5 text-yellow-500 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <ViewportTooltip visible={hintVisible} className="w-56 whitespace-pre-line text-center">
-                    {SIZE_LIMIT_TEXT}
-                  </ViewportTooltip>
-                </div>
-              )}
+          <div className="mt-7">
+            <h4 className="text-xl font-semibold text-gray-600 dark:text-gray-300">
+              长宽比 {allowAuto ? <span className="text-gray-500 dark:text-gray-400">（默认 Auto）</span> : null}
+            </h4>
+            <div className="mt-5 grid grid-cols-3 gap-4">
+              {ratioOptions.map((item) => {
+                const active = selectionMode === 'ratio' && selectedRatio === item.value
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={ratioButtonClass(active)}
+                    onClick={() => {
+                      setSelectedRatio(item.value)
+                      setSelectionMode('ratio')
+                    }}
+                  >
+                    <RatioGlyph shape={item.shape} active={active} />
+                    <span>{item.label}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
-        </div>
 
-        <div className="mt-4 flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-          >
-            取消
-          </button>
-          <button
-            onClick={applySize}
-            disabled={!previewSize}
-            className="flex-1 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            确定
-          </button>
+          <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50/80 p-4 dark:border-white/[0.08] dark:bg-white/[0.03]">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-200">自定义分辨率</h4>
+              {isClamped && (
+                <span className="rounded-full bg-yellow-100 px-2 py-1 text-[11px] font-medium text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-300">
+                  已自动规整
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
+              <label>
+                <span className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">宽</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={customW}
+                  onFocus={() => setSelectionMode('resolution')}
+                  onChange={(e) => {
+                    setCustomW(e.target.value)
+                    setSelectionMode('resolution')
+                  }}
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200 dark:focus:border-blue-500/60 dark:focus:ring-blue-500/15"
+                  placeholder="1024"
+                />
+              </label>
+              <span className="mb-3 text-lg font-semibold text-gray-400 dark:text-gray-500">×</span>
+              <label>
+                <span className="mb-1.5 block text-xs font-medium text-gray-500 dark:text-gray-400">高</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={customH}
+                  onFocus={() => setSelectionMode('resolution')}
+                  onChange={(e) => {
+                    setCustomH(e.target.value)
+                    setSelectionMode('resolution')
+                  }}
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-gray-200 dark:focus:border-blue-500/60 dark:focus:ring-blue-500/15"
+                  placeholder="1024"
+                />
+              </label>
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              提示：{SIZE_LIMIT_TEXT}
+            </p>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-gray-50 px-4 py-3 dark:bg-white/[0.03]">
+            <div className="text-xs text-gray-400 dark:text-gray-500">将使用</div>
+            <div className="mt-1 font-mono text-lg font-semibold text-gray-800 dark:text-gray-100">
+              {previewSize || '尺寸无效'}
+            </div>
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={applySize}
+              disabled={!previewSize}
+              className="flex-1 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              确定
+            </button>
+          </div>
         </div>
       </div>
     </div>
