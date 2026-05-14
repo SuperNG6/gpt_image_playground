@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } from '../lib/size'
-import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import ViewportTooltip from './ViewportTooltip'
 
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
@@ -21,6 +20,7 @@ interface Props {
   onSelect: (size: string) => void
   onClose: () => void
   allowAuto?: boolean
+  anchorElement?: HTMLElement | null
 }
 
 type Mode = 'auto' | 'ratio' | 'resolution'
@@ -43,9 +43,16 @@ function findPresetForSize(size: string) {
   return null
 }
 
-export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true }: Props) {
-  usePreventBackgroundScroll(true)
-
+export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, anchorElement }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({
+    left: 16,
+    top: 16,
+    width: 448,
+    maxHeight: 560,
+    contentMaxHeight: 320,
+    transformOrigin: 'bottom center',
+  })
   const currentPreset = findPresetForSize(currentSize)
   const currentParsedSize = parseSize(currentSize)
   const [mode, setMode] = useState<Mode>(() => {
@@ -65,6 +72,69 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
 
   const [hintVisible, setHintVisible] = useState(false)
   const hintTimerRef = useRef<number | null>(null)
+
+  const updatePosition = useCallback(() => {
+    if (typeof window === 'undefined') return
+
+    const margin = 12
+    const gap = 10
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const width = Math.min(448, Math.max(320, viewportWidth - margin * 2))
+    const rect = anchorElement?.getBoundingClientRect()
+    const anchorLeft = rect ? rect.left + rect.width / 2 : viewportWidth / 2
+    const left = Math.min(
+      Math.max(margin, anchorLeft - width / 2),
+      Math.max(margin, viewportWidth - width - margin),
+    )
+
+    const spaceAbove = rect ? rect.top - margin : viewportHeight / 2
+    const spaceBelow = rect ? viewportHeight - rect.bottom - margin : viewportHeight / 2
+    const placeAbove = rect ? spaceAbove >= Math.min(460, spaceBelow) : true
+    const availableHeight = Math.max(280, (placeAbove ? spaceAbove : spaceBelow) - gap)
+    const maxHeight = Math.min(560, availableHeight)
+    const panelHeight = Math.min(panelRef.current?.offsetHeight || maxHeight, maxHeight)
+    const rawTop = rect
+      ? placeAbove
+        ? rect.top - gap - panelHeight
+        : rect.bottom + gap
+      : (viewportHeight - panelHeight) / 2
+    const top = Math.min(
+      Math.max(margin, rawTop),
+      Math.max(margin, viewportHeight - panelHeight - margin),
+    )
+
+    setPosition({
+      left,
+      top,
+      width,
+      maxHeight,
+      contentMaxHeight: Math.max(180, maxHeight - 226),
+      transformOrigin: placeAbove ? 'bottom center' : 'top center',
+    })
+  }, [anchorElement])
+
+  useLayoutEffect(() => {
+    updatePosition()
+  }, [updatePosition, mode, tier, ratio])
+
+  useEffect(() => {
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [updatePosition])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
 
   useEffect(() => () => {
     if (hintTimerRef.current != null) window.clearTimeout(hintTimerRef.current)
@@ -144,13 +214,20 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
   }
 
   return (
-    <div data-no-drag-select className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" />
+    <div data-no-drag-select data-size-picker-root className="fixed inset-0 z-[70]" onPointerDown={onClose}>
       <div
-        className="relative z-10 w-full max-w-md rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-        onClick={(e) => e.stopPropagation()}
+        ref={panelRef}
+        className="fixed z-10 rounded-2xl border border-gray-200/80 bg-white/95 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.22)] ring-1 ring-black/5 backdrop-blur-xl animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
+        style={{
+          left: position.left,
+          top: position.top,
+          width: position.width,
+          maxHeight: position.maxHeight,
+          transformOrigin: position.transformOrigin,
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
       >
-        <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">设置图像尺寸</h3>
             <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">当前：{currentSize || 'auto'}</p>
@@ -166,7 +243,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
           </button>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div className="flex rounded-xl bg-gray-100/80 p-1 dark:bg-white/[0.04]">
             {allowAuto && (
               <button
@@ -190,7 +267,10 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
             </button>
           </div>
 
-          <div className="h-[320px] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1">
+          <div
+            className="overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-white/10 pr-1 -mr-1"
+            style={{ maxHeight: position.contentMaxHeight }}
+          >
             {mode === 'auto' && (
               <div className="flex h-full animate-fade-in items-center justify-center pt-8 pb-4 text-center">
                 <div>
@@ -322,7 +402,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
           </div>
         </div>
 
-        <div className="mt-5 flex gap-2">
+        <div className="mt-4 flex gap-2">
           <button
             onClick={onClose}
             className="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 text-sm text-gray-600 transition hover:bg-gray-200 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"

@@ -480,6 +480,7 @@ export default function InputBar() {
   const [imageHintId, setImageHintId] = useState<string | null>(null)
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
+  const [sizePickerAnchor, setSizePickerAnchor] = useState<HTMLElement | null>(null)
   const [showParamsModal, setShowParamsModal] = useState(false)
   const [mobileParamSheet, setMobileParamSheet] = useState<'quality' | 'format' | 'moderation' | null>(null)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
@@ -1559,7 +1560,15 @@ export default function InputBar() {
 
   const renderMobileParamChips = () => (
     <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-2">
-      <button type="button" onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }} className={mobileChipClass}>
+      <button
+        type="button"
+        onClick={(event) => {
+          dismissAllTooltips()
+          setSizePickerAnchor(event.currentTarget)
+          setShowSizePicker(true)
+        }}
+        className={mobileChipClass}
+      >
         <span className="text-gray-400 dark:text-gray-500">尺寸</span>
         <span>{displaySize}</span>
       </button>
@@ -1679,8 +1688,12 @@ export default function InputBar() {
         <SizePickerModal
           currentSize={isFalTextToImage && params.size === 'auto' ? DEFAULT_FAL_IMAGE_SIZE : params.size}
           onSelect={(size) => setParams({ size })}
-          onClose={() => setShowSizePicker(false)}
+          onClose={() => {
+            setShowSizePicker(false)
+            setSizePickerAnchor(null)
+          }}
           allowAuto={!isFalTextToImage}
+          anchorElement={sizePickerAnchor}
         />
       )}
 
@@ -2038,7 +2051,11 @@ export default function InputBar() {
                     />
                     <button
                       type="button"
-                      onClick={() => { dismissAllTooltips(); setShowSizePicker(true) }}
+                      onClick={(event) => {
+                        dismissAllTooltips()
+                        setSizePickerAnchor(event.currentTarget)
+                        setShowSizePicker(true)
+                      }}
                       className="h-10 w-[104px] rounded-xl border border-gray-200/60 bg-white text-xs font-mono text-gray-600 shadow-sm transition-all hover:bg-gray-50 hover:shadow dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
                       title="选择尺寸"
                     >
