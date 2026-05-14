@@ -12,8 +12,6 @@ import { getSafeBoundingClientRect } from '../lib/domRect'
 import Select from './Select'
 import SizePickerModal from './SizePickerModal'
 import ViewportTooltip from './ViewportTooltip'
-import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
-import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import { useHintTooltip } from '../hooks/useHintTooltip'
 
 
@@ -481,7 +479,6 @@ export default function InputBar() {
   const [mobileCollapsed, setMobileCollapsed] = useState(false)
   const [showSizePicker, setShowSizePicker] = useState(false)
   const [sizePickerAnchor, setSizePickerAnchor] = useState<HTMLElement | null>(null)
-  const [showParamsModal, setShowParamsModal] = useState(false)
   const [mobileParamSheet, setMobileParamSheet] = useState<'quality' | 'format' | 'moderation' | null>(null)
   const [maskPreviewUrl, setMaskPreviewUrl] = useState('')
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
@@ -525,9 +522,6 @@ export default function InputBar() {
     document.addEventListener('touchstart', onTouchStart, { passive: true })
     return () => document.removeEventListener('touchstart', onTouchStart)
   }, [isMobile])
-
-  useCloseOnEscape(showParamsModal, () => setShowParamsModal(false))
-  usePreventBackgroundScroll(showParamsModal)
 
   const currentActiveProfile = useMemo(() => getActiveApiProfile(settings), [settings])
   const activeProfile = useMemo(() => (
@@ -1430,6 +1424,33 @@ export default function InputBar() {
     <div className={`grid ${cols} gap-2 text-xs flex-1`}>
       <label
         className="relative flex flex-col gap-0.5"
+        onMouseEnter={sizeHint.show}
+        onMouseLeave={sizeHint.hide}
+        onTouchStart={sizeHint.startTouch}
+        onTouchEnd={sizeHint.clearTimer}
+        onTouchCancel={sizeHint.hide}
+        onClick={sizeHint.show}
+      >
+        <span className="text-gray-400 dark:text-gray-500 ml-1">尺寸</span>
+        <button
+          type="button"
+          onClick={(event) => {
+            dismissAllTooltips()
+            setSizePickerAnchor(event.currentTarget)
+            setShowSizePicker(true)
+          }}
+          className="min-w-0 truncate rounded-xl border border-gray-200/60 bg-white/50 px-3 py-1.5 text-left font-mono text-xs text-gray-700 shadow-sm outline-none transition-all duration-200 hover:bg-white focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.06] dark:focus:border-blue-500/50"
+          title="选择尺寸"
+        >
+          {displaySize}
+        </button>
+        <ButtonTooltip
+          visible={isFalTextToImage && sizeHint.visible}
+          text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
+        />
+      </label>
+      <label
+        className="relative flex flex-col gap-0.5"
         onMouseEnter={qualityHint.show}
         onMouseLeave={qualityHint.hide}
         onTouchStart={qualityHint.startTouch}
@@ -1695,31 +1716,6 @@ export default function InputBar() {
           allowAuto={!isFalTextToImage}
           anchorElement={sizePickerAnchor}
         />
-      )}
-
-      {showParamsModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onMouseDown={() => setShowParamsModal(false)}>
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" />
-          <div
-            className="relative z-10 w-full max-w-sm rounded-3xl border border-white/50 bg-white/95 p-5 shadow-2xl ring-1 ring-black/5 animate-modal-in dark:border-white/[0.08] dark:bg-gray-900/95 dark:ring-white/10"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200">参数设置</h3>
-              <button
-                type="button"
-                onClick={() => setShowParamsModal(false)}
-                className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-300"
-                aria-label="关闭参数设置"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            {renderParams('grid-cols-2')}
-          </div>
-        </div>
       )}
 
       {renderMobileActionSheet()}
@@ -2034,34 +2030,10 @@ export default function InputBar() {
                 />
               </div>
 
-              {/* 桌面端按钮行 */}
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <div
-                    className="relative"
-                    onMouseEnter={sizeHint.show}
-                    onMouseLeave={sizeHint.hide}
-                    onTouchStart={sizeHint.startTouch}
-                    onTouchEnd={sizeHint.clearTimer}
-                    onTouchCancel={sizeHint.hide}
-                  >
-                    <ButtonTooltip
-                      visible={isFalTextToImage && sizeHint.visible}
-                      text={<>fal.ai 的文生图模式不支持 <code className="rounded bg-white/10 px-1 py-0.5 font-mono">auto</code> 参数</>}
-                    />
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        dismissAllTooltips()
-                        setSizePickerAnchor(event.currentTarget)
-                        setShowSizePicker(true)
-                      }}
-                      className="h-10 w-[104px] rounded-xl border border-gray-200/60 bg-white text-xs font-mono text-gray-600 shadow-sm transition-all hover:bg-gray-50 hover:shadow dark:border-white/[0.08] dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-                      title="选择尺寸"
-                    >
-                      {displaySize}
-                    </button>
-                  </div>
+              {/* 桌面端参数 + 按钮 */}
+              <div className="mt-3 flex items-end justify-between gap-3">
+                {renderParams('grid-cols-6')}
+                <div className="mb-0.5 flex flex-shrink-0 gap-2">
                   <div
                     className="relative"
                     onMouseEnter={() => setAttachHover(true)}
@@ -2082,18 +2054,6 @@ export default function InputBar() {
                       </svg>
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowParamsModal(true)}
-                    className="h-10 w-10 flex items-center justify-center rounded-xl transition-all shadow-sm bg-gray-200 dark:bg-white/[0.06] hover:bg-gray-300 dark:hover:bg-white/[0.1] text-gray-500 dark:text-gray-300 hover:shadow"
-                    title="参数设置"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
                   <div
                     className="relative"
                     onMouseEnter={() => setSubmitHover(true)}
