@@ -4,17 +4,17 @@ import { calculateImageSize, normalizeImageSize, type SizeTier } from '../lib/si
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
 const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
 const RATIOS = [
-  { label: 'Auto', value: 'auto', shape: 'auto' },
-  { label: '21:9', value: '21:9', shape: 'wide' },
-  { label: '16:9', value: '16:9', shape: 'wide' },
-  { label: '3:2', value: '3:2', shape: 'landscape' },
-  { label: '4:3', value: '4:3', shape: 'landscape' },
-  { label: '5:4', value: '5:4', shape: 'landscape' },
-  { label: '1:1', value: '1:1', shape: 'square' },
-  { label: '4:5', value: '4:5', shape: 'portrait' },
-  { label: '3:4', value: '3:4', shape: 'portrait' },
-  { label: '2:3', value: '2:3', shape: 'portraitTall' },
-  { label: '9:16', value: '9:16', shape: 'portraitTall' },
+  { label: 'Auto', value: 'auto' },
+  { label: '21:9', value: '21:9' },
+  { label: '16:9', value: '16:9' },
+  { label: '3:2', value: '3:2' },
+  { label: '4:3', value: '4:3' },
+  { label: '5:4', value: '5:4' },
+  { label: '1:1', value: '1:1' },
+  { label: '4:5', value: '4:5' },
+  { label: '3:4', value: '3:4' },
+  { label: '2:3', value: '2:3' },
+  { label: '9:16', value: '9:16' },
 ] as const
 
 interface Props {
@@ -46,23 +46,40 @@ function findPresetForSize(size: string) {
   return null
 }
 
-function RatioGlyph({ shape, active }: { shape: typeof RATIOS[number]['shape']; active: boolean }) {
+function parseRatioValue(value: string) {
+  const [width, height] = value.split(':').map((part) => Number(part))
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+  return { width, height }
+}
+
+function getRatioPreviewSize(value: string) {
+  const parsed = parseRatioValue(value)
+  if (!parsed) return { width: 20, height: 20 }
+
+  const maxWidth = 34
+  const maxHeight = 28
+  const ratio = parsed.width / parsed.height
+  if (ratio >= maxWidth / maxHeight) {
+    return { width: maxWidth, height: Math.max(4, maxWidth / ratio) }
+  }
+  return { width: Math.max(4, maxHeight * ratio), height: maxHeight }
+}
+
+function RatioGlyph({ value, active }: { value: string; active: boolean }) {
   const baseClass = active ? 'border-blue-500' : 'border-gray-400 dark:border-gray-500'
-  if (shape === 'auto') {
+  if (value === 'auto') {
     return (
       <span className={`h-5 w-5 rounded-md border-2 border-dashed ${baseClass}`} />
     )
   }
 
-  const sizeClass = {
-    wide: 'h-2 w-7',
-    landscape: 'h-3 w-6',
-    square: 'h-5 w-5',
-    portrait: 'h-6 w-4',
-    portraitTall: 'h-7 w-3.5',
-  }[shape]
-
-  return <span className={`rounded-sm border-2 ${baseClass} ${sizeClass}`} />
+  const size = getRatioPreviewSize(value)
+  return (
+    <span
+      className={`box-border rounded-sm border-2 ${baseClass}`}
+      style={{ width: `${size.width}px`, height: `${size.height}px` }}
+    />
+  )
 }
 
 export default function SizePickerModal({ currentSize, onSelect, onClose, allowAuto = true, anchorElement }: Props) {
@@ -251,7 +268,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                       setSelectionMode('ratio')
                     }}
                   >
-                    <RatioGlyph shape={item.shape} active={active} />
+                    <RatioGlyph value={item.value} active={active} />
                     <span>{item.label}</span>
                   </button>
                 )
