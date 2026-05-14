@@ -4,6 +4,7 @@ import { zipSync } from 'fflate'
 import { ensureImageCached, useStore } from '../store'
 import { canvasToBlob, loadImage } from '../lib/canvasImage'
 import { DownloadIcon, GridIcon, PlusIcon, TrashIcon } from './icons'
+import { type SlicerHistoryEntry, loadSlicerImage, saveSlicerEntry } from '../lib/slicerHistory'
 
 type LineAxis = 'vertical' | 'horizontal'
 type DragState = { axis: LineAxis; index: number } | null
@@ -35,8 +36,7 @@ function clampDraggedLine(value: number, lines: number[], index: number) {
 }
 
 function normalizeLines(lines: number[]) {
-  return [...new Set(lines.map((line) => Math.round(clampLine(line) * 10) / 10))]
-    .sort((a, b) => a - b)
+  return [...new Set(lines.map((line) => Math.round(clampLine(line) * 10) / 10))].sort((a, b) => a - b)
 }
 
 function linesFromCount(count: number) {
@@ -72,7 +72,13 @@ function formatPercent(value: number) {
   return `${Math.round(value * 10) / 10}%`
 }
 
-export default function GridSplitPage() {
+interface GridSplitPageProps {
+  restoreEntry?: SlicerHistoryEntry | null
+  onRestored?: () => void
+  onHistoryUpdated?: () => void
+}
+
+export default function GridSplitPage({ restoreEntry, onRestored, onHistoryUpdated }: GridSplitPageProps) {
   const imageId = useStore((s) => s.splitImageId)
   const splitImageDataUrl = useStore((s) => s.splitImageDataUrl)
   const setSplitImageId = useStore((s) => s.setSplitImageId)
@@ -95,10 +101,15 @@ export default function GridSplitPage() {
   const previewRef = useRef<HTMLDivElement>(null)
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null)
   const selectionDraggedRef = useRef(false)
+  const clickedSliceRef = useRef<string | null>(null)
+  const clickMetaKeyRef = useRef(false)
 
-  useEffect(() => () => {
-    slices.forEach((slice) => URL.revokeObjectURL(slice.url))
-  }, [slices])
+  useEffect(
+    () => () => {
+      slices.forEach((slice) => URL.revokeObjectURL(slice.url))
+    },
+    [slices],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -128,6 +139,27 @@ export default function GridSplitPage() {
       cancelled = true
     }
   }, [imageId, splitImageDataUrl, setSplitImageDataUrl, setSplitImageId, showToast])
+
+  // 从侧栏历史恢复：先设置配置，再异步加载原图
+  const restoreEntryId = restoreEntry?.id
+  useEffect(() => {
+    if (!restoreEntry) return
+    setCols(restoreEntry.cols)
+    setRows(restoreEntry.rows)
+    setVerticalLines(restoreEntry.vLines)
+    setHorizontalLines(restoreEntry.hLines)
+    setSlices([])
+    setSelectedSliceNames([])
+    setSelectedLine(null)
+
+    loadSlicerImage(restoreEntry.imageId)
+      .then((dataUrl) => {
+        if (dataUrl) setSplitImageDataUrl(dataUrl)
+      })
+      .catch(() => {})
+      .finally(() => onRestored?.())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreEntryId])
 
   const totalPieces = useMemo(() => {
     return (verticalLines.length + 1) * (horizontalLines.length + 1)
@@ -191,13 +223,13 @@ export default function GridSplitPage() {
         : ((clientY - rect.top) / rect.height) * 100
 
     if (dragging.axis === 'vertical') {
-      setVerticalLines((lines) => lines.map((line, index) =>
-        index === dragging.index ? clampDraggedLine(pct, lines, index) : line,
-      ))
+      setVerticalLines((lines) =>
+        lines.map((line, index) => (index === dragging.index ? clampDraggedLine(pct, lines, index) : line)),
+      )
     } else {
-      setHorizontalLines((lines) => lines.map((line, index) =>
-        index === dragging.index ? clampDraggedLine(pct, lines, index) : line,
-      ))
+      setHorizontalLines((lines) =>
+        lines.map((line, index) => (index === dragging.index ? clampDraggedLine(pct, lines, index) : line)),
+      )
     }
     clearSlices()
   }
@@ -271,6 +303,13 @@ export default function GridSplitPage() {
       setSlices(nextSlices)
       setSelectedSliceNames([])
       showToast(`已生成 ${nextSlices.length} 张切片`, 'success')
+
+      // 保存到历史记录（后台静默，不阻塞 UI）
+      if (src) {
+        saveSlicerEntry(src, cols, rows, verticalLines, horizontalLines)
+          .then(() => onHistoryUpdated?.())
+          .catch(() => {})
+      }
     } catch (err) {
       console.error(err)
       showToast(err instanceof Error ? err.message : '切分失败', 'error')
@@ -300,9 +339,7 @@ export default function GridSplitPage() {
   const clearSliceSelection = () => setSelectedSliceNames([])
 
   const toggleSliceSelection = (name: string) => {
-    setSelectedSliceNames((prev) =>
-      prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name],
-    )
+    setSelectedSliceNames((prev) => (prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name]))
   }
 
   const updateSelectionFromBox = (box: NonNullable<SelectionBox>) => {
@@ -328,6 +365,11 @@ export default function GridSplitPage() {
     if (!slices.length) return
     if (event.target instanceof Element && event.target.closest('[data-slice-download]')) return
     if (event.button !== 0) return
+
+    // 在 pointerdown 时记录点击的切片（此时 event.target 准确；capture 后的 pointerup target 会变成容器）
+    const cardEl = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-slice-card]') : null
+    clickedSliceRef.current = cardEl?.dataset.sliceName ?? null
+    clickMetaKeyRef.current = event.metaKey || event.ctrlKey
 
     selectionStartRef.current = { x: event.clientX, y: event.clientY }
     selectionDraggedRef.current = false
@@ -367,11 +409,23 @@ export default function GridSplitPage() {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }
 
-    if (!selectionDraggedRef.current && event.target instanceof Element) {
-      const card = event.target.closest<HTMLElement>('[data-slice-card]')
-      if (card?.dataset.sliceName) toggleSliceSelection(card.dataset.sliceName)
+    if (!selectionDraggedRef.current) {
+      const name = clickedSliceRef.current
+      if (name) {
+        if (clickMetaKeyRef.current) {
+          // Command/Ctrl + 点击：追加或移除，不影响其他选中项
+          toggleSliceSelection(name)
+        } else {
+          // 普通点击：独占选中（与 macOS Finder 逻辑一致）
+          setSelectedSliceNames((prev) => (prev.length === 1 && prev[0] === name ? [] : [name]))
+        }
+      } else {
+        // 点击空白区域：清空选中
+        clearSliceSelection()
+      }
     }
 
+    clickedSliceRef.current = null
     selectionStartRef.current = null
     selectionDraggedRef.current = false
     setSelectionBox(null)
@@ -385,9 +439,15 @@ export default function GridSplitPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">宫格图切分工作台</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">{image ? `${image.naturalWidth}×${image.naturalHeight}` : '未选择图片'}</span>
-            <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">{verticalLines.length} 条纵线</span>
-            <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">{horizontalLines.length} 条横线</span>
+            <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">
+              {image ? `${image.naturalWidth}×${image.naturalHeight}` : '未选择图片'}
+            </span>
+            <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">
+              {verticalLines.length} 条纵线
+            </span>
+            <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">
+              {horizontalLines.length} 条横线
+            </span>
             <span className="rounded-md bg-white px-2 py-1 shadow-sm dark:bg-white/[0.06]">预计 {totalPieces} 张</span>
           </div>
         </div>
@@ -430,7 +490,9 @@ export default function GridSplitPage() {
                         key={`v-${index}`}
                         type="button"
                         className={`absolute top-0 h-full w-6 -translate-x-1/2 cursor-ew-resize ${
-                          selectedLine?.axis === 'vertical' && selectedLine.index === index ? 'text-blue-300' : 'text-white/85'
+                          selectedLine?.axis === 'vertical' && selectedLine.index === index
+                            ? 'text-blue-300'
+                            : 'text-white/85'
                         }`}
                         style={{ left: `${left}%` }}
                         onPointerDown={(event) => {
@@ -448,7 +510,9 @@ export default function GridSplitPage() {
                         key={`h-${index}`}
                         type="button"
                         className={`absolute left-0 h-6 w-full -translate-y-1/2 cursor-ns-resize ${
-                          selectedLine?.axis === 'horizontal' && selectedLine.index === index ? 'text-blue-300' : 'text-white/85'
+                          selectedLine?.axis === 'horizontal' && selectedLine.index === index
+                            ? 'text-blue-300'
+                            : 'text-white/85'
                         }`}
                         style={{ top: `${top}%` }}
                         onPointerDown={(event) => {
@@ -470,7 +534,9 @@ export default function GridSplitPage() {
                 >
                   <GridIcon className="mb-3 h-10 w-10 text-gray-300 dark:text-gray-600" />
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-200">选择一张图片开始切分</span>
-                  <span className="mt-1 text-xs text-gray-400 dark:text-gray-500">支持从右键菜单带图进入，也支持本页上传</span>
+                  <span className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                    支持从右键菜单带图进入，也支持本页上传
+                  </span>
                 </button>
               )}
             </div>
@@ -506,11 +572,17 @@ export default function GridSplitPage() {
               <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">当前选中：{selectedLabel}</p>
 
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button onClick={() => addLine('vertical')} className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-white/[0.08] dark:text-gray-200 dark:hover:bg-white/[0.05]">
+                <button
+                  onClick={() => addLine('vertical')}
+                  className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-white/[0.08] dark:text-gray-200 dark:hover:bg-white/[0.05]"
+                >
                   <PlusIcon className="h-4 w-4" />
                   加纵线
                 </button>
-                <button onClick={() => addLine('horizontal')} className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-white/[0.08] dark:text-gray-200 dark:hover:bg-white/[0.05]">
+                <button
+                  onClick={() => addLine('horizontal')}
+                  className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50 dark:border-white/[0.08] dark:text-gray-200 dark:hover:bg-white/[0.05]"
+                >
                   <PlusIcon className="h-4 w-4" />
                   加横线
                 </button>
@@ -536,11 +608,17 @@ export default function GridSplitPage() {
               </div>
 
               <div className="mt-3 max-h-40 overflow-y-auto rounded-lg bg-gray-50 p-2 text-xs dark:bg-white/[0.04]">
-                {[...verticalLines.map((line, index) => ({ axis: 'vertical' as const, line, index })), ...horizontalLines.map((line, index) => ({ axis: 'horizontal' as const, line, index }))].length === 0 ? (
+                {[
+                  ...verticalLines.map((line, index) => ({ axis: 'vertical' as const, line, index })),
+                  ...horizontalLines.map((line, index) => ({ axis: 'horizontal' as const, line, index })),
+                ].length === 0 ? (
                   <div className="py-4 text-center text-gray-400">暂无切线</div>
                 ) : (
                   <div className="flex flex-col gap-1">
-                    {[...verticalLines.map((line, index) => ({ axis: 'vertical' as const, line, index })), ...horizontalLines.map((line, index) => ({ axis: 'horizontal' as const, line, index }))].map((item) => (
+                    {[
+                      ...verticalLines.map((line, index) => ({ axis: 'vertical' as const, line, index })),
+                      ...horizontalLines.map((line, index) => ({ axis: 'horizontal' as const, line, index })),
+                    ].map((item) => (
                       <button
                         key={`${item.axis}-${item.index}`}
                         onClick={() => setSelectedLine({ axis: item.axis, index: item.index })}
@@ -550,7 +628,9 @@ export default function GridSplitPage() {
                             : 'text-gray-500 hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.06]'
                         }`}
                       >
-                        <span>{item.axis === 'vertical' ? '纵线' : '横线'} {item.index + 1}</span>
+                        <span>
+                          {item.axis === 'vertical' ? '纵线' : '横线'} {item.index + 1}
+                        </span>
                         <span>{formatPercent(item.line)}</span>
                       </button>
                     ))}
@@ -650,7 +730,9 @@ export default function GridSplitPage() {
                   )}
                   <div className="flex items-center justify-between gap-2 border-t border-gray-100 px-2 py-1.5 text-[11px] text-gray-500 dark:border-white/[0.06] dark:text-gray-400">
                     <span className="truncate">{slice.name}</span>
-                    <span className="shrink-0">{slice.width}×{slice.height}</span>
+                    <span className="shrink-0">
+                      {slice.width}×{slice.height}
+                    </span>
                   </div>
                   {selectedSliceSet.has(slice.name) && (
                     <button
@@ -679,7 +761,9 @@ export default function GridSplitPage() {
               )}
             </div>
           ) : (
-            <div className="px-4 py-12 text-center text-sm text-gray-400 dark:text-gray-500">生成切片后会在这里预览结果</div>
+            <div className="px-4 py-12 text-center text-sm text-gray-400 dark:text-gray-500">
+              生成切片后会在这里预览结果
+            </div>
           )}
         </section>
       </div>

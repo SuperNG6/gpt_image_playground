@@ -6,6 +6,7 @@ import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigration
 import { useApplyThemeMode } from './hooks/useApplyThemeMode'
 import Header from './components/Header'
 import ConversationSidebar from './components/ConversationSidebar'
+import SlicerSidebar from './components/SlicerSidebar'
 import RightToolSidebar from './components/RightToolSidebar'
 import SearchBar from './components/SearchBar'
 import TaskGrid from './components/TaskGrid'
@@ -19,12 +20,15 @@ import MaskEditorModal from './components/MaskEditorModal'
 import ImageContextMenu from './components/ImageContextMenu'
 import SupportPromptModal from './components/SupportPromptModal'
 import GridSplitPage from './components/GridSplitPage'
+import type { SlicerHistoryEntry } from './lib/slicerHistory'
 
 export default function App() {
   const themeMode = useStore((s) => s.settings.themeMode)
   const setSettings = useStore((s) => s.setSettings)
   const [route, setRoute] = useState(() => window.location.hash)
   const isSlicerRoute = route === '#/slicer'
+  const [slicerSidebarVersion, setSlicerSidebarVersion] = useState(0)
+  const [slicerRestoreEntry, setSlicerRestoreEntry] = useState<SlicerHistoryEntry | null>(null)
   useDockerApiUrlMigrationNotice()
   useApplyThemeMode(themeMode)
 
@@ -65,11 +69,19 @@ export default function App() {
   return (
     <>
       <Header isSlicerRoute={isSlicerRoute} />
-      <ConversationSidebar />
+      {isSlicerRoute ? (
+        <SlicerSidebar version={slicerSidebarVersion} onRestore={setSlicerRestoreEntry} />
+      ) : (
+        <ConversationSidebar />
+      )}
       {!isSlicerRoute && <RightToolSidebar />}
       <main data-home-main data-drag-select-surface className={`pb-48 md:pl-72 ${isSlicerRoute ? '' : 'lg:pr-80'}`}>
         {isSlicerRoute ? (
-          <GridSplitPage />
+          <GridSplitPage
+            restoreEntry={slicerRestoreEntry}
+            onRestored={() => setSlicerRestoreEntry(null)}
+            onHistoryUpdated={() => setSlicerSidebarVersion((v) => v + 1)}
+          />
         ) : (
           <div className="safe-area-x max-w-7xl mx-auto pt-4 md:pt-0">
             <SearchBar />

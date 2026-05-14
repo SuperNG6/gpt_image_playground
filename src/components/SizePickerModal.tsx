@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { calculateImageSize, normalizeImageSize, type SizeTier } from '../lib/size'
 
 const TIERS: SizeTier[] = ['1K', '2K', '4K']
-const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
+const SIZE_LIMIT_TEXT =
+  '由于模型限制，最终输出会自动规整到合法尺寸：宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
 const RATIOS = [
   { label: 'Auto', value: 'auto' },
   { label: '21:9', value: '21:9' },
@@ -56,8 +57,8 @@ function getRatioPreviewSize(value: string) {
   const parsed = parseRatioValue(value)
   if (!parsed) return { width: 20, height: 20 }
 
-  const maxWidth = 34
-  const maxHeight = 28
+  const maxWidth = 26
+  const maxHeight = 18
   const ratio = parsed.width / parsed.height
   if (ratio >= maxWidth / maxHeight) {
     return { width: maxWidth, height: Math.max(4, maxWidth / ratio) }
@@ -68,9 +69,7 @@ function getRatioPreviewSize(value: string) {
 function RatioGlyph({ value, active }: { value: string; active: boolean }) {
   const baseClass = active ? 'border-blue-500' : 'border-gray-400 dark:border-gray-500'
   if (value === 'auto') {
-    return (
-      <span className={`h-5 w-5 rounded-md border-2 border-dashed ${baseClass}`} />
-    )
+    return <span className={`h-5 w-5 rounded-md border-2 border-dashed ${baseClass}`} />
   }
 
   const size = getRatioPreviewSize(value)
@@ -93,12 +92,13 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
   })
   const currentPreset = findPresetForSize(currentSize)
   const currentParsedSize = parseSize(currentSize)
-  const initialRatio = currentSize === 'auto' && allowAuto
-    ? 'auto'
-    : currentPreset?.ratio ?? (allowAuto ? 'auto' : '4:3')
+  const initialRatio =
+    currentSize === 'auto' && allowAuto ? 'auto' : (currentPreset?.ratio ?? (allowAuto ? 'auto' : '4:3'))
   const [tier, setTier] = useState<SizeTier>(currentPreset?.tier ?? '2K')
   const [selectedRatio, setSelectedRatio] = useState(initialRatio)
-  const [selectionMode, setSelectionMode] = useState<SelectionMode>(() => currentPreset || currentSize === 'auto' ? 'ratio' : 'resolution')
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>(() =>
+    currentPreset || currentSize === 'auto' ? 'ratio' : 'resolution',
+  )
   const [customW, setCustomW] = useState(currentParsedSize?.width ?? '1024')
   const [customH, setCustomH] = useState(currentParsedSize?.height ?? '1024')
 
@@ -112,10 +112,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     const width = Math.min(380, Math.max(320, viewportWidth - margin * 2))
     const rect = anchorElement?.getBoundingClientRect()
     const anchorLeft = rect ? rect.left + rect.width / 2 : viewportWidth / 2
-    const left = Math.min(
-      Math.max(margin, anchorLeft - width / 2),
-      Math.max(margin, viewportWidth - width - margin),
-    )
+    const left = Math.min(Math.max(margin, anchorLeft - width / 2), Math.max(margin, viewportWidth - width - margin))
 
     const spaceAbove = rect ? rect.top - margin : viewportHeight / 2
     const spaceBelow = rect ? viewportHeight - rect.bottom - margin : viewportHeight / 2
@@ -127,10 +124,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
         ? rect.top - gap - panelHeight
         : rect.bottom + gap
       : (viewportHeight - panelHeight) / 2
-    const top = Math.min(
-      Math.max(margin, rawTop),
-      Math.max(margin, viewportHeight - panelHeight - margin),
-    )
+    const top = Math.min(Math.max(margin, rawTop), Math.max(margin, viewportHeight - panelHeight - margin))
 
     setPosition({
       left,
@@ -192,17 +186,19 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
     onClose()
   }
 
-  const tierButtonClass = (active: boolean) => `h-9 rounded-lg border text-sm font-semibold transition ${
-    active
-      ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
-      : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
-  }`
+  const tierButtonClass = (active: boolean) =>
+    `h-9 rounded-lg border text-sm font-semibold transition ${
+      active
+        ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
+        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
+    }`
 
-  const ratioButtonClass = (active: boolean) => `flex h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg border text-[11px] font-semibold transition ${
-    active
-      ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
-      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
-  }`
+  const ratioButtonClass = (active: boolean) =>
+    `flex h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg border text-[11px] font-semibold transition ${
+      active
+        ? 'border-blue-500 bg-blue-50 text-blue-600 shadow-[0_0_0_1px_rgba(59,130,246,0.12)] dark:bg-blue-500/15 dark:text-blue-300'
+        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:border-white/[0.1] dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]'
+    }`
 
   return (
     <div data-no-drag-select data-size-picker-root className="fixed inset-0 z-[70]" onPointerDown={onClose}>
@@ -318,7 +314,10 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                 />
               </label>
             </div>
-            <p className="mt-1 line-clamp-1 text-[10px] leading-relaxed text-gray-500 dark:text-gray-400" title={`提示：${SIZE_LIMIT_TEXT}`}>
+            <p
+              className="mt-1 line-clamp-1 text-[10px] leading-relaxed text-gray-500 dark:text-gray-400"
+              title={`提示：${SIZE_LIMIT_TEXT}`}
+            >
               提示：{SIZE_LIMIT_TEXT}
             </p>
           </div>
