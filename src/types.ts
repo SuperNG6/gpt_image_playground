@@ -4,6 +4,7 @@ export type ApiMode = 'images' | 'responses'
 export type BuiltInApiProvider = 'openai' | 'fal'
 export type ApiProvider = BuiltInApiProvider | string
 export type CustomProviderTemplate = 'http-image'
+export type ThemeMode = 'auto' | 'light' | 'dark'
 
 export type CustomProviderRequestMethod = 'GET' | 'POST'
 export type CustomProviderContentType = 'json' | 'multipart'
@@ -86,6 +87,7 @@ export interface AppSettings {
   useConversationContext: boolean
   conversationContextCount: number
   autoSaveToDirectory: boolean
+  themeMode: ThemeMode
   profiles: ApiProfile[]
   activeProfileId: string
 }

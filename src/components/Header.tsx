@@ -22,6 +22,8 @@ interface HeaderProps {
 
 export default function Header({ isSlicerRoute = false }: HeaderProps) {
   const setShowSettings = useStore((s) => s.setShowSettings)
+  const themeMode = useStore((s) => s.settings.themeMode)
+  const setSettings = useStore((s) => s.setSettings)
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
   const { hasUpdate, latestRelease, dismiss } = useVersionCheck()
   const [showHelp, setShowHelp] = useState(false)
@@ -31,6 +33,11 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
   const installTooltip = useTooltip()
   const helpTooltip = useTooltip()
   const settingsTooltip = useTooltip()
+  const themeOptions = [
+    { value: 'light', label: '浅', title: '浅色模式' },
+    { value: 'dark', label: '深', title: '深色模式' },
+    { value: 'auto', label: '自', title: '跟随系统' },
+  ] as const
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -223,6 +230,30 @@ export default function Header({ isSlicerRoute = false }: HeaderProps) {
               <ViewportTooltip visible={settingsTooltip.visible} className="whitespace-nowrap">
                 设置
               </ViewportTooltip>
+            </div>
+            <div
+              className="ml-1 flex items-center rounded-lg border border-gray-200 bg-gray-100/80 p-0.5 shadow-sm dark:border-white/[0.08] dark:bg-white/[0.06]"
+              aria-label="主题模式"
+            >
+              {themeOptions.map((option) => {
+                const active = themeMode === option.value
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setSettings({ themeMode: option.value })}
+                    className={`h-7 min-w-7 rounded-md px-2 text-xs font-semibold transition ${
+                      active
+                        ? 'bg-white text-gray-950 shadow-sm dark:bg-blue-500 dark:text-white'
+                        : 'text-gray-500 hover:bg-white/70 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-white'
+                    }`}
+                    title={option.title}
+                    aria-pressed={active}
+                  >
+                    {option.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
         </div>

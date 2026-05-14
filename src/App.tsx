@@ -3,6 +3,7 @@ import { initStore } from './store'
 import { useStore } from './store'
 import { buildSettingsFromUrlParams, clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { useDockerApiUrlMigrationNotice } from './hooks/useDockerApiUrlMigrationNotice'
+import { useApplyThemeMode } from './hooks/useApplyThemeMode'
 import Header from './components/Header'
 import ConversationSidebar from './components/ConversationSidebar'
 import RightToolSidebar from './components/RightToolSidebar'
@@ -20,10 +21,12 @@ import SupportPromptModal from './components/SupportPromptModal'
 import GridSplitPage from './components/GridSplitPage'
 
 export default function App() {
+  const themeMode = useStore((s) => s.settings.themeMode)
   const setSettings = useStore((s) => s.setSettings)
   const [route, setRoute] = useState(() => window.location.hash)
   const isSlicerRoute = route === '#/slicer'
   useDockerApiUrlMigrationNotice()
+  useApplyThemeMode(themeMode)
 
   useEffect(() => {
     const handleHashChange = () => setRoute(window.location.hash)

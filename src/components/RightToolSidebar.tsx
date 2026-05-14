@@ -71,7 +71,7 @@ export default function RightToolSidebar() {
           </div>
           <button
             onClick={openSlicerPage}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-200"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-400"
           >
             <GridIcon className="h-4 w-4" />
             进入切分页

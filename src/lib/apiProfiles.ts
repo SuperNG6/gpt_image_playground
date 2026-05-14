@@ -453,6 +453,9 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
       ? Math.max(1, Math.min(20, Math.floor(record.conversationContextCount)))
       : 5,
     autoSaveToDirectory: typeof record.autoSaveToDirectory === 'boolean' ? record.autoSaveToDirectory : false,
+    themeMode: record.themeMode === 'light' || record.themeMode === 'dark' || record.themeMode === 'auto'
+      ? record.themeMode
+      : 'auto',
     profiles,
     activeProfileId,
   }

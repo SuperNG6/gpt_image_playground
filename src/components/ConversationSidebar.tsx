@@ -107,7 +107,7 @@ export default function ConversationSidebar() {
       <div className="mx-auto flex max-w-7xl flex-col gap-3 md:h-full md:max-w-none">
         <button
           onClick={startNewConversation}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-200"
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-gray-800 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-400"
         >
           <PlusIcon className="h-4 w-4" />
           新建对话
